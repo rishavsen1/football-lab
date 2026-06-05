@@ -1036,7 +1036,8 @@ function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,ro
             const dEl=C[k].el-C[row.base].el;
             return (
             <React.Fragment key={i}>
-              <Edge sub={`${Math.round(haversine(C[row.base],C[k]))} km · ${dEl===0?"level":(dEl>0?"↑":"↓")+Math.abs(dEl)+"m"}`}/>
+              <Edge sub={`${Math.round(haversine(C[row.base],C[k]))} km`}
+                sub2={dEl===0?"level":(dEl>0?"↑":"↓")+Math.abs(dEl)+"m"}/>
               <Node label={`${STAGE}${i+1} · Jun ${row.dates[i]}`} sub={C[k].n}
                 tag={`${C[k].wb}° · ${C[k].el}m`} col="var(--cyan)"/>
             </React.Fragment>);
@@ -1125,7 +1126,7 @@ function Node({label,sub,tag,col}){
     </div>
   );
 }
-function Edge({sub}){ return <div className="tledge"><span/><em>{sub}</em></div>; }
+function Edge({sub,sub2}){ return <div className="tledge"><span/><em>{sub}</em>{sub2&&<em className="e2">{sub2}</em>}</div>; }
 
 /* --------------------------------- styles ---------------------------------- */
 const CSS = `
@@ -1197,7 +1198,7 @@ const CSS = `
   .stats{grid-template-columns:repeat(2,1fr)}
   .console .console-mtoggle{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
     color:var(--ink2);background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer}
-  .console.collapsed{padding-bottom:0}
+  .console.collapsed{padding:0;border:none;background:none;box-shadow:none}
   .console.collapsed > :not(.console-mtoggle){display:none}
 }
 
@@ -1455,9 +1456,10 @@ const CSS = `
 .tllab{font-family:var(--mono);font-size:10px;letter-spacing:.06em;font-weight:500}
 .tlsub{font-size:12px;font-weight:700;color:var(--ink);margin-top:3px;line-height:1.2}
 .tltag{font-family:var(--mono);font-size:9.5px;color:var(--mut);margin-top:3px}
-.tledge{flex:1;min-width:34px;display:flex;flex-direction:column;align-items:center;padding-top:5px}
+.tledge{flex:1;min-width:52px;display:flex;flex-direction:column;align-items:center;padding:5px 6px 0}
 .tledge span{height:2px;width:100%;background:linear-gradient(90deg,var(--cyan),var(--magenta));border-radius:2px;opacity:.55}
-.tledge em{font-style:normal;font-family:var(--mono);font-size:9px;color:var(--mut);margin-top:6px}
+.tledge em{font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--mut);margin-top:6px;white-space:nowrap;line-height:1.3}
+.tledge em.e2{margin-top:1px;color:var(--ink2)}
 
 /* override */
 .ovrow{display:flex;align-items:center;gap:9px;margin:14px 0 4px;font-size:12px;color:var(--mut);flex-wrap:wrap}
