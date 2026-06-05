@@ -1,474 +1,111 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Plane, Sun, Mountain, Clock, CalendarClock, Trophy, RotateCcw,
-  SlidersHorizontal, Map as MapIcon, BarChart3, BookOpen, X, Scale, Zap, Sigma
+  SlidersHorizontal, Map as MapIcon, BarChart3, BookOpen, X, Scale, Zap, Sigma, Link2, Check,
+  Search, ChevronDown, ChevronRight, Activity, Download, ShieldCheck, AlertTriangle
 } from "lucide-react";
 
-/* ============================================================================
-   WORLD CUP 2026 — TEAM TRAVEL BURDEN LAB  (Idea #3)   ·   v1.0  (2026-06-05)
-   Single-file React artifact. Deps: react + lucide-react only.
-   Data provenance:
-     - Groups (A–L), home nations & base camps: CONFIRMED (draw, Mar 2026 playoffs, announced camps; Iran moved Tucson->Tijuana)
-     - Home-origin / host / base-camp city geo, timezone, elevation: real
-     - All 72 group-stage fixtures (teams, venue, date): CONFIRMED (official schedule)
-     - Venue-assignment audit ("Optimized"): constrained minimax over the 72
-       fixtures; live local search reaches the exact CBC MILP optimum (validated)
-   Everything below is computed live from the tuning console.
-============================================================================ */
+import {
+  C, BASE_CHOICES, BASES, TEAMS, FIFA_RANK, STAGE, FIXTURES, MILP_AUDIT,
+  TEAM_MATCHES, ACTUAL_CITY,
+} from "./data/wc2026.js";
+import {
+  DEFAULT_H, DEFAULT_W, LEAD,
+  haversine, bearing, rad, rawMetrics, scaled, composite, gini,
+  burdensFor, optimizeAssignment,
+} from "./model/burden.js";
+import { encodeState, decodeState } from "./lib/urlState.js";
+import { buildCardSVG, downloadCardPNG } from "./lib/shareCard.js";
 
-// ---- City reference: [lat, lon, utcJune, elevM, country, wbgtJune] -----------
-const C = {
-  // host cities
-  LA:{n:"Los Angeles",lat:33.95,lon:-118.34,utc:-7,el:30,co:"USA",wb:22},
-  SF:{n:"SF Bay",lat:37.40,lon:-121.97,utc:-7,el:8,co:"USA",wb:20},
-  SEA:{n:"Seattle",lat:47.59,lon:-122.33,utc:-7,el:50,co:"USA",wb:18},
-  VAN:{n:"Vancouver",lat:49.28,lon:-123.11,utc:-7,el:5,co:"CAN",wb:18},
-  DAL:{n:"Dallas",lat:32.75,lon:-97.09,utc:-5,el:180,co:"USA",wb:29},
-  HOU:{n:"Houston",lat:29.68,lon:-95.41,utc:-5,el:15,co:"USA",wb:31},
-  KC:{n:"Kansas City",lat:39.05,lon:-94.48,utc:-5,el:270,co:"USA",wb:27},
-  ATL:{n:"Atlanta",lat:33.76,lon:-84.40,utc:-4,el:320,co:"USA",wb:28},
-  MIA:{n:"Miami",lat:25.96,lon:-80.24,utc:-4,el:2,co:"USA",wb:30},
-  PHI:{n:"Philadelphia",lat:39.90,lon:-75.17,utc:-4,el:12,co:"USA",wb:26},
-  BOS:{n:"Boston",lat:42.09,lon:-71.26,utc:-4,el:60,co:"USA",wb:23},
-  NY:{n:"New York/NJ",lat:40.81,lon:-74.07,utc:-4,el:5,co:"USA",wb:25},
-  TOR:{n:"Toronto",lat:43.63,lon:-79.42,utc:-4,el:76,co:"CAN",wb:24},
-  MEX:{n:"Mexico City",lat:19.30,lon:-99.15,utc:-6,el:2240,co:"MEX",wb:19},
-  GDL:{n:"Guadalajara",lat:20.68,lon:-103.46,utc:-6,el:1566,co:"MEX",wb:22},
-  MTY:{n:"Monterrey",lat:25.67,lon:-100.24,utc:-6,el:540,co:"MEX",wb:30},
-  // home origins
-  Johannesburg:{n:"Johannesburg",lat:-26.2,lon:28.0,utc:2},
-  Seoul:{n:"Seoul",lat:37.57,lon:126.98,utc:9},
-  Prague:{n:"Prague",lat:50.08,lon:14.44,utc:2},
-  Zurich:{n:"Zurich",lat:47.37,lon:8.54,utc:2},
-  Doha:{n:"Doha",lat:25.29,lon:51.53,utc:3},
-  Sarajevo:{n:"Sarajevo",lat:43.86,lon:18.41,utc:2},
-  Rio:{n:"Rio de Janeiro",lat:-22.91,lon:-43.17,utc:-3},
-  Casablanca:{n:"Casablanca",lat:33.57,lon:-7.59,utc:1},
-  PortAuPrince:{n:"Port-au-Prince",lat:18.59,lon:-72.31,utc:-4},
-  Glasgow:{n:"Glasgow",lat:55.86,lon:-4.25,utc:1},
-  Berlin:{n:"Berlin",lat:52.52,lon:13.40,utc:2},
-  Willemstad:{n:"Willemstad",lat:12.11,lon:-68.93,utc:-4},
-  Abidjan:{n:"Abidjan",lat:5.35,lon:-4.00,utc:0},
-  Quito:{n:"Quito",lat:-0.18,lon:-78.47,utc:-5},
-  Amsterdam:{n:"Amsterdam",lat:52.37,lon:4.90,utc:2},
-  Tokyo:{n:"Tokyo",lat:35.68,lon:139.69,utc:9},
-  Stockholm:{n:"Stockholm",lat:59.33,lon:18.07,utc:2},
-  Tunis:{n:"Tunis",lat:36.81,lon:10.18,utc:1},
-  Brussels:{n:"Brussels",lat:50.85,lon:4.35,utc:2},
-  Cairo:{n:"Cairo",lat:30.04,lon:31.24,utc:3},
-  Tehran:{n:"Tehran",lat:35.69,lon:51.39,utc:3.5},
-  Auckland:{n:"Auckland",lat:-36.85,lon:174.76,utc:12},
-  Madrid:{n:"Madrid",lat:40.42,lon:-3.70,utc:2},
-  Praia:{n:"Praia",lat:14.93,lon:-23.51,utc:-1},
-  Riyadh:{n:"Riyadh",lat:24.71,lon:46.68,utc:3},
-  Montevideo:{n:"Montevideo",lat:-34.90,lon:-56.16,utc:-3},
-  Paris:{n:"Paris",lat:48.85,lon:2.35,utc:2},
-  Dakar:{n:"Dakar",lat:14.69,lon:-17.45,utc:0},
-  Oslo:{n:"Oslo",lat:59.91,lon:10.75,utc:2},
-  Baghdad:{n:"Baghdad",lat:33.31,lon:44.36,utc:3},
-  BuenosAires:{n:"Buenos Aires",lat:-34.60,lon:-58.38,utc:-3},
-  Algiers:{n:"Algiers",lat:36.75,lon:3.06,utc:1},
-  Vienna:{n:"Vienna",lat:48.21,lon:16.37,utc:2},
-  Amman:{n:"Amman",lat:31.95,lon:35.93,utc:3},
-  Lisbon:{n:"Lisbon",lat:38.72,lon:-9.14,utc:1},
-  Kinshasa:{n:"Kinshasa",lat:-4.32,lon:15.31,utc:1},
-  Tashkent:{n:"Tashkent",lat:41.31,lon:69.24,utc:5},
-  Bogota:{n:"Bogota",lat:4.71,lon:-74.07,utc:-5},
-  London:{n:"London",lat:51.51,lon:-0.13,utc:1},
-  Zagreb:{n:"Zagreb",lat:45.81,lon:15.98,utc:2},
-  Accra:{n:"Accra",lat:5.60,lon:-0.19,utc:0},
-  PanamaCity:{n:"Panama City",lat:8.98,lon:-79.52,utc:-5},
-  Sydney:{n:"Sydney",lat:-33.87,lon:151.21,utc:10},
-  Asuncion:{n:"Asuncion",lat:-25.30,lon:-57.64,utc:-4},
-  // base-camp cities (real, announced) — lat/lon/utcJune/elevation
-  PCK:{n:"Pachuca",lat:20.10,lon:-98.76,utc:-6,el:2400,co:"MEX"},
-  SAN:{n:"San Diego",lat:32.72,lon:-117.16,utc:-7,el:20,co:"USA"},
-  SBA:{n:"Santa Barbara",lat:34.43,lon:-119.71,utc:-7,el:15,co:"USA"},
-  SLC:{n:"Salt Lake City",lat:40.76,lon:-111.89,utc:-6,el:1288,co:"USA"},
-  ACY:{n:"Atlantic City",lat:39.36,lon:-74.42,utc:-4,el:3,co:"USA"},
-  CLT:{n:"Charlotte",lat:35.23,lon:-80.84,utc:-4,el:229,co:"USA"},
-  IRV:{n:"Irvine",lat:33.68,lon:-117.83,utc:-7,el:17,co:"USA"},
-  MESA:{n:"Mesa",lat:33.42,lon:-111.83,utc:-7,el:360,co:"USA"},
-  WS:{n:"Winston-Salem",lat:36.10,lon:-80.24,utc:-4,el:297,co:"USA"},
-  BOCA:{n:"Boca Raton",lat:26.36,lon:-80.08,utc:-4,el:4,co:"USA"},
-  COL:{n:"Columbus",lat:39.96,lon:-82.99,utc:-4,el:275,co:"USA"},
-  NAS:{n:"Nashville",lat:36.16,lon:-86.78,utc:-5,el:169,co:"USA"},
-  SPO:{n:"Spokane",lat:47.66,lon:-117.43,utc:-7,el:581,co:"USA"},
-  TIJ:{n:"Tijuana",lat:32.51,lon:-117.04,utc:-7,el:30,co:"MEX"},
-  CHA:{n:"Chattanooga",lat:35.05,lon:-85.31,utc:-5,el:207,co:"USA"},
-  TPA:{n:"Tampa",lat:27.95,lon:-82.46,utc:-4,el:15,co:"USA"},
-  AUS:{n:"Austin",lat:30.27,lon:-97.74,utc:-5,el:149,co:"USA"},
-  PDC:{n:"Playa del Carmen",lat:20.63,lon:-87.07,utc:-5,el:10,co:"MEX"},
-  GSO:{n:"Greensboro",lat:36.07,lon:-79.79,utc:-4,el:270,co:"USA"},
-  WSS:{n:"White Sulphur Springs",lat:37.78,lon:-80.30,utc:-4,el:600,co:"USA"},
-  POR:{n:"Portland",lat:45.52,lon:-122.68,utc:-7,el:15,co:"USA"},
-  ALX:{n:"Alexandria",lat:38.80,lon:-77.05,utc:-4,el:10,co:"USA"},
-  PBG:{n:"Palm Beach Gardens",lat:26.82,lon:-80.14,utc:-4,el:5,co:"USA"},
-  PVD:{n:"Providence",lat:41.82,lon:-71.41,utc:-4,el:18,co:"USA"},
-};
-const BASE_CHOICES = Object.keys(C).filter((k)=>C[k].el!=null).sort((a,b)=>C[a].n.localeCompare(C[b].n));
-// real announced base camp per team (reuses host-city keys where the camp shares that metro)
-const BASES = {
-  "Mexico":"MEX","South Africa":"PCK","South Korea":"GDL","Czechia":"DAL",
-  "Canada":"VAN","Switzerland":"SAN","Qatar":"SBA","Bosnia & Herz.":"SLC",
-  "Brazil":"NY","Morocco":"NY","Haiti":"ACY","Scotland":"CLT",
-  "United States":"IRV","Paraguay":"SF","Australia":"SF","Türkiye":"MESA",
-  "Germany":"WS","Curaçao":"BOCA","Ivory Coast":"PHI","Ecuador":"COL",
-  "Netherlands":"KC","Japan":"NAS","Sweden":"DAL","Tunisia":"MTY",
-  "Belgium":"SEA","Egypt":"SPO","Iran":"TIJ","New Zealand":"SAN",
-  "Spain":"CHA","Cape Verde":"TPA","Saudi Arabia":"AUS","Uruguay":"PDC",
-  "France":"BOS","Senegal":"NY","Norway":"GSO","Iraq":"WSS",
-  "Argentina":"KC","Algeria":"KC","Austria":"SBA","Jordan":"POR",
-  "Portugal":"PBG","DR Congo":"HOU","Uzbekistan":"ATL","Colombia":"GDL",
-  "England":"KC","Croatia":"ALX","Ghana":"PVD","Panama":"TOR",
-};
-
-// ---- Teams: confirmed groups & home origins ---------------------------------
-const TEAMS = [
-  {t:"Mexico",f:"🇲🇽",cf:"CONCACAF",g:"A",o:"MEX"},
-  {t:"South Africa",f:"🇿🇦",cf:"CAF",g:"A",o:"Johannesburg"},
-  {t:"South Korea",f:"🇰🇷",cf:"AFC",g:"A",o:"Seoul"},
-  {t:"Czechia",f:"🇨🇿",cf:"UEFA",g:"A",o:"Prague"},
-  {t:"Canada",f:"🇨🇦",cf:"CONCACAF",g:"B",o:"TOR"},
-  {t:"Switzerland",f:"🇨🇭",cf:"UEFA",g:"B",o:"Zurich"},
-  {t:"Qatar",f:"🇶🇦",cf:"AFC",g:"B",o:"Doha"},
-  {t:"Bosnia & Herz.",f:"🇧🇦",cf:"UEFA",g:"B",o:"Sarajevo"},
-  {t:"Brazil",f:"🇧🇷",cf:"CONMEBOL",g:"C",o:"Rio"},
-  {t:"Morocco",f:"🇲🇦",cf:"CAF",g:"C",o:"Casablanca"},
-  {t:"Haiti",f:"🇭🇹",cf:"CONCACAF",g:"C",o:"PortAuPrince"},
-  {t:"Scotland",f:"🏴󠁧󠁢󠁳󠁣󠁴󠁿",cf:"UEFA",g:"C",o:"Glasgow"},
-  {t:"United States",f:"🇺🇸",cf:"CONCACAF",g:"D",o:"LA"},
-  {t:"Paraguay",f:"🇵🇾",cf:"CONMEBOL",g:"D",o:"Asuncion"},
-  {t:"Australia",f:"🇦🇺",cf:"AFC",g:"D",o:"Sydney"},
-  {t:"Türkiye",f:"🇹🇷",cf:"UEFA",g:"D",o:"Vienna"}, // camps in Europe; origin proxy
-  {t:"Germany",f:"🇩🇪",cf:"UEFA",g:"E",o:"Berlin"},
-  {t:"Curaçao",f:"🇨🇼",cf:"CONCACAF",g:"E",o:"Willemstad"},
-  {t:"Ivory Coast",f:"🇨🇮",cf:"CAF",g:"E",o:"Abidjan"},
-  {t:"Ecuador",f:"🇪🇨",cf:"CONMEBOL",g:"E",o:"Quito"},
-  {t:"Netherlands",f:"🇳🇱",cf:"UEFA",g:"F",o:"Amsterdam"},
-  {t:"Japan",f:"🇯🇵",cf:"AFC",g:"F",o:"Tokyo"},
-  {t:"Sweden",f:"🇸🇪",cf:"UEFA",g:"F",o:"Stockholm"},
-  {t:"Tunisia",f:"🇹🇳",cf:"CAF",g:"F",o:"Tunis"},
-  {t:"Belgium",f:"🇧🇪",cf:"UEFA",g:"G",o:"Brussels"},
-  {t:"Egypt",f:"🇪🇬",cf:"CAF",g:"G",o:"Cairo"},
-  {t:"Iran",f:"🇮🇷",cf:"AFC",g:"G",o:"Tehran"},
-  {t:"New Zealand",f:"🇳🇿",cf:"OFC",g:"G",o:"Auckland"},
-  {t:"Spain",f:"🇪🇸",cf:"UEFA",g:"H",o:"Madrid"},
-  {t:"Cape Verde",f:"🇨🇻",cf:"CAF",g:"H",o:"Praia"},
-  {t:"Saudi Arabia",f:"🇸🇦",cf:"AFC",g:"H",o:"Riyadh"},
-  {t:"Uruguay",f:"🇺🇾",cf:"CONMEBOL",g:"H",o:"Montevideo"},
-  {t:"France",f:"🇫🇷",cf:"UEFA",g:"I",o:"Paris"},
-  {t:"Senegal",f:"🇸🇳",cf:"CAF",g:"I",o:"Dakar"},
-  {t:"Norway",f:"🇳🇴",cf:"UEFA",g:"I",o:"Oslo"},
-  {t:"Iraq",f:"🇮🇶",cf:"AFC",g:"I",o:"Baghdad"},
-  {t:"Argentina",f:"🇦🇷",cf:"CONMEBOL",g:"J",o:"BuenosAires"},
-  {t:"Algeria",f:"🇩🇿",cf:"CAF",g:"J",o:"Algiers"},
-  {t:"Austria",f:"🇦🇹",cf:"UEFA",g:"J",o:"Vienna"},
-  {t:"Jordan",f:"🇯🇴",cf:"AFC",g:"J",o:"Amman"},
-  {t:"Portugal",f:"🇵🇹",cf:"UEFA",g:"K",o:"Lisbon"},
-  {t:"DR Congo",f:"🇨🇩",cf:"CAF",g:"K",o:"Kinshasa"},
-  {t:"Uzbekistan",f:"🇺🇿",cf:"AFC",g:"K",o:"Tashkent"},
-  {t:"Colombia",f:"🇨🇴",cf:"CONMEBOL",g:"K",o:"Bogota"},
-  {t:"England",f:"🏴󠁧󠁢󠁥󠁮󠁧󠁿",cf:"UEFA",g:"L",o:"London"},
-  {t:"Croatia",f:"🇭🇷",cf:"UEFA",g:"L",o:"Zagreb"},
-  {t:"Ghana",f:"🇬🇭",cf:"CAF",g:"L",o:"Accra"},
-  {t:"Panama",f:"🇵🇦",cf:"CONCACAF",g:"L",o:"PanamaCity"},
-];
-
-// FIFA world ranking snapshot (1 Apr 2026 — last pre-tournament update).
-// Top 20 + Canada are the published values; teams below ~20 are approximate.
-const FIFA_RANK = {
-  "France":1,"Spain":2,"Argentina":3,"England":4,"Portugal":5,"Brazil":6,"Netherlands":7,
-  "Morocco":8,"Belgium":9,"Germany":10,"Croatia":11,"Colombia":13,"Senegal":14,"Mexico":15,
-  "United States":16,"Uruguay":17,"Japan":18,"Switzerland":19,"Iran":21,"Austria":22,"Ecuador":23,
-  "South Korea":24,"Australia":25,"Türkiye":26,"Norway":28,"Canada":30,"Egypt":32,"Scotland":33,
-  "Qatar":35,"Algeria":37,"Paraguay":38,"Sweden":40,"Tunisia":41,"Ivory Coast":42,"Czechia":43,
-  "DR Congo":56,"Uzbekistan":57,"Saudi Arabia":58,"Iraq":59,"South Africa":61,"Jordan":64,
-  "Cape Verde":70,"Ghana":73,"Bosnia & Herz.":74,"Panama":78,"Curaçao":82,"New Zealand":86,"Haiti":90,
-};
-// match mnemonic prefix (group stage = G; future stages: R32, R16, QF, SF, F)
-const STAGE = "G";
-
-// ---- Real WC2026 group-stage fixtures + exact-MILP audit (see methods) ----
-const FIXTURES=[
-  [11,"A","Mexico","South Africa","MEX"],
-  [11,"A","South Korea","Czechia","GDL"],
-  [12,"B","Canada","Bosnia & Herz.","TOR"],
-  [12,"D","United States","Paraguay","LA"],
-  [13,"C","Brazil","Morocco","NY"],
-  [13,"D","Australia","Türkiye","VAN"],
-  [13,"C","Haiti","Scotland","BOS"],
-  [13,"B","Qatar","Switzerland","SF"],
-  [14,"E","Germany","Curaçao","HOU"],
-  [14,"E","Ivory Coast","Ecuador","PHI"],
-  [14,"F","Netherlands","Japan","DAL"],
-  [14,"F","Sweden","Tunisia","MTY"],
-  [15,"H","Spain","Cape Verde","ATL"],
-  [15,"G","Belgium","Egypt","SEA"],
-  [15,"H","Saudi Arabia","Uruguay","MIA"],
-  [15,"G","Iran","New Zealand","LA"],
-  [16,"I","France","Senegal","NY"],
-  [16,"I","Iraq","Norway","BOS"],
-  [16,"J","Argentina","Algeria","KC"],
-  [16,"J","Austria","Jordan","SF"],
-  [17,"K","Portugal","DR Congo","HOU"],
-  [17,"L","England","Croatia","DAL"],
-  [17,"L","Ghana","Panama","TOR"],
-  [17,"K","Uzbekistan","Colombia","MEX"],
-  [18,"A","Czechia","South Africa","ATL"],
-  [18,"B","Switzerland","Bosnia & Herz.","LA"],
-  [18,"B","Canada","Qatar","VAN"],
-  [18,"A","Mexico","South Korea","GDL"],
-  [19,"D","United States","Australia","SEA"],
-  [19,"C","Scotland","Morocco","BOS"],
-  [19,"C","Brazil","Haiti","PHI"],
-  [19,"D","Türkiye","Paraguay","SF"],
-  [20,"F","Netherlands","Sweden","HOU"],
-  [20,"E","Germany","Ivory Coast","TOR"],
-  [20,"E","Ecuador","Curaçao","KC"],
-  [20,"F","Tunisia","Japan","MTY"],
-  [21,"H","Spain","Saudi Arabia","ATL"],
-  [21,"G","Belgium","Iran","LA"],
-  [21,"H","Uruguay","Cape Verde","MIA"],
-  [21,"G","New Zealand","Egypt","VAN"],
-  [22,"J","Argentina","Austria","DAL"],
-  [22,"I","France","Iraq","PHI"],
-  [22,"I","Norway","Senegal","NY"],
-  [22,"J","Jordan","Algeria","SF"],
-  [23,"K","Portugal","Uzbekistan","HOU"],
-  [23,"L","England","Ghana","BOS"],
-  [23,"L","Panama","Croatia","TOR"],
-  [23,"K","Colombia","DR Congo","GDL"],
-  [24,"B","Canada","Switzerland","VAN"],
-  [24,"B","Bosnia & Herz.","Qatar","SEA"],
-  [24,"C","Scotland","Brazil","MIA"],
-  [24,"C","Morocco","Haiti","ATL"],
-  [24,"A","Mexico","Czechia","MEX"],
-  [24,"A","South Korea","South Africa","MTY"],
-  [25,"E","Ecuador","Germany","NY"],
-  [25,"E","Curaçao","Ivory Coast","PHI"],
-  [25,"F","Tunisia","Netherlands","KC"],
-  [25,"F","Japan","Sweden","DAL"],
-  [25,"D","United States","Türkiye","LA"],
-  [25,"D","Paraguay","Australia","SF"],
-  [26,"I","Norway","France","BOS"],
-  [26,"I","Senegal","Iraq","TOR"],
-  [26,"G","New Zealand","Belgium","VAN"],
-  [26,"G","Egypt","Iran","SEA"],
-  [26,"H","Uruguay","Spain","GDL"],
-  [26,"H","Cape Verde","Saudi Arabia","HOU"],
-  [27,"L","Panama","England","NY"],
-  [27,"L","Croatia","Ghana","PHI"],
-  [27,"K","Colombia","Portugal","MIA"],
-  [27,"K","DR Congo","Uzbekistan","ATL"],
-  [27,"J","Jordan","Argentina","DAL"],
-  [27,"J","Algeria","Austria","KC"],
-];
-const MILP_OPT=["MEX","GDL","VAN","SF","NY","LA","BOS","SF","ATL","TOR","DAL","KC","ATL","VAN","DAL","LA","NY","PHI","KC","LA","TOR","NY","BOS","GDL","MTY","LA","TOR","GDL","SF","NY","PHI","LA","ATL","BOS","PHI","DAL","ATL","VAN","DAL","SF","LA","NY","TOR","SEA","ATL","TOR","PHI","GDL","TOR","LA","PHI","NY","MTY","GDL","NY","PHI","KC","ATL","LA","SF","BOS","NY","SEA","LA","ATL","TOR","NY","PHI","GDL","DAL","LA","SEA"];
-const MILP_AUDIT={"actualMax": 27.61, "actualMin": 1.3, "actualGap": 26.31, "optMax": 20.7, "optMin": 0.0, "optGap": 20.7, "moved": 49};
-
-// ---- Real fixtures -> per-team schedule + assignment constraints ------------
-const US_CITIES=["LA","SF","SEA","DAL","HOU","KC","ATL","MIA","PHI","BOS","NY"];
-const MX_CITIES=["MEX","GDL","MTY"], CA_CITIES=["TOR","VAN"];
-const ALL_HOSTS=[...US_CITIES,...MX_CITIES,...CA_CITIES];
-// each match's allowed venues — host nations are kept in their own country
-function allowedCities(home,away){
-  if(home==="Mexico"||away==="Mexico") return MX_CITIES;
-  if(home==="Canada"||away==="Canada") return CA_CITIES;
-  if(home==="United States"||away==="United States") return US_CITIES;
-  return ALL_HOSTS;
-}
-// team -> its fixture indices, ordered by date
-const TEAM_MATCHES={};
-FIXTURES.forEach((f,i)=>{ [f[2],f[3]].forEach((t)=>{(TEAM_MATCHES[t]=TEAM_MATCHES[t]||[]).push(i);}); });
-Object.values(TEAM_MATCHES).forEach((a)=>a.sort((p,q)=>FIXTURES[p][0]-FIXTURES[q][0]));
-const ACTUAL_CITY = FIXTURES.map((f)=>f[4]);   // the real FIFA venue assignment
-const MATCH_DAYS  = FIXTURES.map((f)=>f[0]);
-
-// ---- reference scales (raw -> ~[0,1]) so metrics are comparable & decoupled --
-const REF = { jet:12, travel:25, heat:12, alt:25, cong:6 };
+// factor metadata (icon + color + plain-language tooltip) for bars / radar / legend
 const METRICS = [
-  {k:"jet",  label:"Jet-lag",    icon:Clock,        col:"var(--magenta)"},
-  {k:"travel",label:"Travel",    icon:Plane,        col:"var(--cyan)"},
-  {k:"heat", label:"Heat",       icon:Sun,          col:"var(--orange)"},
-  {k:"alt",  label:"Altitude",   icon:Mountain,     col:"var(--green)"},
-  {k:"cong", label:"Congestion", icon:CalendarClock,col:"var(--violet)"},
+  {k:"jet",  label:"Jet-lag",    icon:Clock,        col:"var(--magenta)", tip:"Body-clock shift from home to base camp. Eastward travel hurts more; arriving early eases it."},
+  {k:"travel",label:"Travel",    icon:Plane,        col:"var(--cyan)",    tip:"Round-trip flight distance from base camp to each venue. Short rest before a match adds a surcharge."},
+  {k:"heat", label:"Heat",       icon:Sun,          col:"var(--orange)",  tip:"How far each venue's June heat (a WBGT proxy) sits above a comfortable threshold."},
+  {k:"alt",  label:"Altitude",   icon:Mountain,     col:"var(--green)",   tip:"Thin-air exposure at high venues, plus the elevation swing between camp and venue."},
+  {k:"cong", label:"Congestion", icon:CalendarClock,col:"var(--violet)",  tip:"Short turnarounds — matchdays closer together than the ideal rest gap."},
 ];
 
-// ---- math -------------------------------------------------------------------
-const R = 6371;
-const rad = (d) => (d * Math.PI) / 180;
-function haversine(a, b) {
-  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
-  const s = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
-  return 2 * R * Math.asin(Math.sqrt(s)); // km
+const CONFEDERATIONS = ["UEFA","CONMEBOL","CONCACAF","CAF","AFC","OFC"];
+
+// plain-language one-line takeaway for a team's row (used in drawer + find-your-team)
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+function ordHard(rank){
+  if(rank===1) return "the hardest";
+  if(rank===2) return "2nd-hardest";
+  if(rank===3) return "3rd-hardest";
+  return `${rank}th-hardest`;
 }
-// great-circle initial bearing from a -> b, degrees 0=N 90=E (date-line safe)
-function bearing(a, b) {
-  const f1 = rad(a.lat), f2 = rad(b.lat);
-  let dl = rad(b.lon - a.lon);
-  dl = ((dl + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI;
-  const y = Math.sin(dl)*Math.cos(f2);
-  const x = Math.cos(f1)*Math.sin(f2) - Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
-  return (Math.atan2(y, x)*180/Math.PI + 360) % 360;
-}
-// shortest-direction circadian shift in (-12,12]; +ve = eastward (phase advance)
-function effShift(fromUtc, toUtc) {
-  const raw = toUtc - fromUtc;
-  return (((raw + 12) % 24) + 24) % 24 - 12;
+function takeawayFor(row, n){
+  if(row.cmp < 0.05) return "Barely any travel burden under these settings — one of the lightest draws.";
+  const ranked = METRICS.map((m)=>({label:m.label, v:row.parts[m.k]})).sort((a,b)=>b.v-a.v);
+  const top = ranked[0];
+  const share = Math.round(100*top.v/(row.cmp/100 || 1));
+  const third = Math.ceil(n/3);
+  const pos = row.rank<=third ? `${ordHard(row.rank)} draw of ${n}`
+            : row.rank>n-third ? `one of the lighter draws (#${row.rank} of ${n})`
+            : `a middle-of-the-pack draw (#${row.rank} of ${n})`;
+  return `${cap(pos)} — ${top.label.toLowerCase()} is the biggest load (${share}% of its burden).`;
 }
 
-const DEFAULT_H = {
-  aE:1.0, aW:0.6, kappa:1.0, delta:0.5, tau:2.0,
-  thetaHeat:28, h0:1500, bExp:1.0, bTrans:0.5, gMin:4,
-};
-const DEFAULT_W = { jet:0.30, travel:0.30, heat:0.15, alt:0.15, cong:0.10 };
+// one-click tuning presets — hide the raw coefficient sliders behind "Advanced"
+const PRESETS = [
+  {key:"fifa", label:"FIFA default", mode:"fifa", W:DEFAULT_W, desc:"The real draw, balanced model weights."},
+  {key:"fair", label:"Fairness view", mode:"fair", objective:"balanced", W:DEFAULT_W, desc:"Redraw for a fairer schedule (gap + Gini)."},
+  {key:"heat", label:"Heat hawk", mode:"fifa", W:{jet:0.15,travel:0.20,heat:0.45,alt:0.10,cong:0.10}, desc:"Weights heat above everything else."},
+  {key:"even", label:"All-rounder", mode:"fifa", W:{jet:0.20,travel:0.20,heat:0.20,alt:0.20,cong:0.20}, desc:"Equal weight on all five factors."},
+];
 
-// raw metrics for one team given its assignment (base, venues, dates)
-function rawMetrics(team, base, venues, dates, H, buffer) {
-  const o = C[team.o], bC = C[base], vC = venues.map((k)=>C[k]);
-  const B = Math.max(0, buffer);
-  const dz = effShift(o.utc, bC.utc), adz = Math.abs(dz);
-  const dirW = dz > 0 ? H.aE : H.aW;
-  const jet = adz === 0 ? 0 : adz * dirW * Math.max(0, 1 - B / (H.kappa * adz));
-  const rest = [B, dates[1]-dates[0], dates[2]-dates[1]];
-  let travel = 0;
-  for (let m=0;m<3;m++) travel += 2*haversine(bC,vC[m])*(1 + H.delta*Math.exp(-rest[m]/H.tau));
-  travel /= 1000; // -> thousand-km units
-  let heat = 0; for (let m=0;m<3;m++) heat += Math.max(0, vC[m].wb - H.thetaHeat);
-  let alt = 0;
-  for (let m=0;m<3;m++)
-    alt += H.bExp*Math.max(0,(vC[m].el-H.h0)/100) + H.bTrans*Math.abs(vC[m].el-bC.el)/100;
-  const cong = Math.max(0,H.gMin-(dates[1]-dates[0])) + Math.max(0,H.gMin-(dates[2]-dates[1]));
-  return { jet, travel, heat, alt, cong, B, rest, dz };
-}
-const scaled = (raw) => ({
-  jet:raw.jet/REF.jet, travel:raw.travel/REF.travel, heat:raw.heat/REF.heat,
-  alt:raw.alt/REF.alt, cong:raw.cong/REF.cong,
-});
-const composite = (sc, w) =>
-  100*(w.jet*sc.jet + w.travel*sc.travel + w.heat*sc.heat + w.alt*sc.alt + w.cong*sc.cong);
-
-// gini over non-negative array
-function gini(xs){
-  const a=[...xs].sort((p,q)=>p-q), n=a.length, s=a.reduce((u,v)=>u+v,0);
-  if(s===0) return 0;
-  let cum=0; for(let i=0;i<n;i++) cum+=(i+1)*a[i];
-  return (2*cum)/(n*s) - (n+1)/n;
-}
-
-// ---- venue-assignment optimizer (constrained minimax) -----------------------
-// composite burden per team for a full city-by-match assignment (via rawMetrics)
-function burdensFor(cityByMatch, H, wN, leadOf, baseOf){
-  const out={};
-  for(const tm of TEAMS){
-    const ms=TEAM_MATCHES[tm.t];
-    out[tm.t]=composite(scaled(rawMetrics(tm, baseOf(tm.t),
-      ms.map((i)=>cityByMatch[i]), ms.map((i)=>FIXTURES[i][0]), H, leadOf(tm.t))), wN);
-  }
-  return out;
-}
-// fast per-(team,slot,city) cost table + venue-independent constant (jet+congestion)
-function costTable(H,wN,leadOf,baseOf){
-  const tab={}, konst={};
-  for(const tm of TEAMS){
-    const t=tm.t, ms=TEAM_MATCHES[t], base=C[baseOf(t)];
-    const dates=ms.map((i)=>FIXTURES[i][0]);
-    const B=Math.max(0,leadOf(t)), rest=[B, dates[1]-dates[0], dates[2]-dates[1]];
-    const o=C[tm.o], dz=effShift(o.utc,base.utc), adz=Math.abs(dz);
-    const jet=adz===0?0:adz*(dz>0?H.aE:H.aW)*Math.max(0,1-B/(H.kappa*adz));
-    const cong=Math.max(0,H.gMin-rest[1])+Math.max(0,H.gMin-rest[2]);
-    konst[t]=100*(wN.jet/REF.jet*jet + wN.cong/REF.cong*cong);
-    tab[t]=ms.map((mi,s)=>{
-      const row={};
-      for(const ck of allowedCities(FIXTURES[mi][2],FIXTURES[mi][3])){
-        const c=C[ck];
-        const travel=2*haversine(base,c)*(1+H.delta*Math.exp(-rest[s]/H.tau))/1000;
-        const heat=Math.max(0,c.wb-H.thetaHeat);
-        const alt=H.bExp*Math.max(0,(c.el-H.h0)/100)+H.bTrans*Math.abs(c.el-base.el)/100;
-        row[ck]=100*(wN.travel/REF.travel*travel + wN.heat/REF.heat*heat + wN.alt/REF.alt*alt);
-      }
-      return row;
-    });
-  }
-  return {tab,konst};
-}
-// combine a primary fairness objective with a small total-burden tie-break
-function objScore(mx,mn,sm,arr,objective){
-  if(objective==="total") return sm;
-  if(objective==="gap")   return 1e6*(mx-mn)+1e3*gini(arr)+sm; // gini term smooths the range landscape
-  if(objective==="gini")  return 1e6*gini(arr)+sm;
-  return 1000*mx+sm; // minimax (worst case)
-}
-// constrained local search over venue assignment, warm-started from the real schedule.
-// constraints: one match per stadium per day; host nations stay in-country.
-// objective is selectable; at the default weighting the minimax run reaches the exact CBC optimum.
-function optimizeAssignment(H,wN,leadOf,baseOf,objective){
-  const obj=objective||"minimax";
-  const {tab,konst}=costTable(H,wN,leadOf,baseOf);
-  const slotOf={};
-  for(const t in TEAM_MATCHES) TEAM_MATCHES[t].forEach((mi,s)=>{ (slotOf[mi]=slotOf[mi]||{})[t]=s; });
-  const teamOf=(mi)=>[FIXTURES[mi][2],FIXTURES[mi][3]];
-  const assign=[...ACTUAL_CITY];
-  const occ=new Map();
-  assign.forEach((c,mi)=>occ.set(MATCH_DAYS[mi]+"|"+c, mi));
-  const burd=(t,ov)=>konst[t]+TEAM_MATCHES[t].reduce((s,mi)=>s+tab[t][slotOf[mi][t]][(ov&&mi in ov)?ov[mi]:assign[mi]],0);
-  const tb={}; for(const t in tab) tb[t]=burd(t,null);
-  // baseline (actual-schedule) gap & gini under current weights, for the Balanced blend
-  let b0mx=-Infinity,b0mn=Infinity; const b0arr=[];
-  for(const t in tb){ const v=tb[t]; if(v>b0mx)b0mx=v; if(v<b0mn)b0mn=v; b0arr.push(v); }
-  const gap0=Math.max(1e-9,b0mx-b0mn), gini0=Math.max(1e-9,gini(b0arr));
-  const needArr = obj==="gini"||obj==="balanced"||obj==="gap";
-  const score=(ov,aff)=>{
-    let mx=-Infinity,mn=Infinity,sm=0; const arr=needArr?[]:null;
-    for(const t in tb){ const v=(aff&&aff.indexOf(t)>=0)?burd(t,ov):tb[t];
-      if(v>mx)mx=v; if(v<mn)mn=v; sm+=v; if(arr)arr.push(v); }
-    if(obj==="balanced") return 0.5*((mx-mn)/gap0 + gini(arr)/gini0)*1e6 + sm; // equity blend + tie-break
-    return objScore(mx,mn,sm,arr,obj);
-  };
-  let cur=score(null,null);
-  for(let pass=0;pass<40;pass++){
-    let best=null, bestD=-1e-9;
-    for(let mi=0;mi<FIXTURES.length;mi++){
-      const d=MATCH_DAYS[mi], c0=assign[mi];
-      for(const c1 of allowedCities(FIXTURES[mi][2],FIXTURES[mi][3])){
-        if(c1===c0) continue;
-        const occu=occ.get(d+"|"+c1), ov={[mi]:c1}; let aff=teamOf(mi);
-        if(occu!=null){
-          if(allowedCities(FIXTURES[occu][2],FIXTURES[occu][3]).indexOf(c0)<0) continue;
-          ov[occu]=c0; aff=aff.concat(teamOf(occu));
-        }
-        const dlt=score(ov,aff)-cur;
-        if(dlt<bestD){ bestD=dlt; best={mi,c1,occu}; }
-      }
-    }
-    if(!best) break;
-    const {mi,c1,occu}=best, d=MATCH_DAYS[mi], c0=assign[mi];
-    occ.delete(d+"|"+c0);
-    if(occu!=null){ assign[occu]=c0; occ.set(d+"|"+c0,occu); }
-    assign[mi]=c1; occ.set(d+"|"+c1,mi);
-    teamOf(mi).concat(occu!=null?teamOf(occu):[]).forEach((t)=>{ tb[t]=burd(t,null); });
-    cur=score(null,null);
-  }
-  return assign;
-}
 
 // ---- main component ---------------------------------------------------------
 export default function WorldCup2026TravelBurdenLab(){
-  const [H, setH] = useState(DEFAULT_H);
-  const [W, setW] = useState(DEFAULT_W);
-  const [lead, setLead] = useState(7);
-  const [mode, setMode] = useState("fifa"); // 'fifa' | 'fair'
-  const [objective, setObjective] = useState("minimax"); // minimax | gap | gini | total
+  // ---- URL state: hydrate once from the share link, then keep the URL in sync
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initRef = useRef(null);
+  if (initRef.current === null) initRef.current = decodeState(searchParams);
+  const I = initRef.current;
+
+  const [H, setH] = useState(I.H ?? DEFAULT_H);
+  const [W, setW] = useState(I.W ?? DEFAULT_W);
+  const [lead, setLead] = useState(I.lead ?? LEAD);
+  const [mode, setMode] = useState(I.mode ?? "fifa"); // 'fifa' | 'fair'
+  const [objective, setObjective] = useState(I.objective ?? "minimax"); // minimax | gap | gini | total
   const [fontTheme, setFontTheme] = useState("editorial"); // editorial | modern | geist
-  const [tab, setTab] = useState("rank");
-  const [sortMode, setSortMode] = useState("burden"); // burden | group | az | fifa
+  const [tab, setTab] = useState(I.tab ?? "rank");
+  const [sortMode, setSortMode] = useState(I.sortMode ?? "burden"); // burden | group | az | fifa
   const [statMode, setStatMode] = useState("sd"); // sd | var | range
-  const [sel, setSel] = useState(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sel, setSel] = useState(I.sel ?? null);
+  const [drawerOpen, setDrawerOpen] = useState(I.drawerOpen ?? false);
   const openTeam = (name)=>{ setSel(name); setDrawerOpen(true); };
-  const [baseOv, setBaseOv] = useState({});
-  const [leadOv, setLeadOv] = useState({});
+  const [baseOv, setBaseOv] = useState(I.baseOv ?? {});
+  const [leadOv, setLeadOv] = useState(I.leadOv ?? {});
+  const [advanced, setAdvanced] = useState(false);   // raw coefficient sliders hidden by default
+  const [pickerOpen, setPickerOpen] = useState(false); // "find your team" overlay
+  const [conf, setConf] = useState("all");            // confederation filter in rankings
+  // console starts collapsed on small screens so mobile users reach the rankings first
+  const [consoleOpen, setConsoleOpen] = useState(()=> !(typeof window!=="undefined" && window.matchMedia && window.matchMedia("(max-width:900px)").matches));
+
+  const applyPreset = (p)=>{ setW(p.W); setH(DEFAULT_H); setMode(p.mode); if(p.objective) setObjective(p.objective); };
+  const presetActive = (p)=> mode===p.mode && JSON.stringify(W)===JSON.stringify(p.W)
+    && JSON.stringify(H)===JSON.stringify(DEFAULT_H) && (!p.objective || objective===p.objective);
+
+  // mirror current state into the query string (replace, so back-button isn't spammed)
+  useEffect(()=>{
+    setSearchParams(encodeState({mode,objective,tab,sortMode,lead,H,W,baseOv,leadOv,sel,drawerOpen}), {replace:true});
+  },[mode,objective,tab,sortMode,lead,H,W,baseOv,leadOv,sel,drawerOpen,setSearchParams]);
+
+  // copy a deep link to the current view (URL already reflects state via the effect)
+  const [copied, setCopied] = useState(false);
+  const copyLink = async ()=>{
+    try{ await navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(()=>setCopied(false),1400); }catch(e){}
+  };
+  // download the current ranking as CSV or JSON so analysts can re-derive
+  const download = (name, text, type)=>{
+    const blob = new Blob([text], {type});
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+  };
 
   const bufferFor = (name) => (leadOv[name] != null ? leadOv[name] : lead);
   const wN = useMemo(()=>{ const s=(W.jet+W.travel+W.heat+W.alt+W.cong)||1;
@@ -533,7 +170,8 @@ export default function WorldCup2026TravelBurdenLab(){
     return {g, gr, gap:Math.max(...vs)-Math.min(...vs)};
   }),[rows]);
   const barFor = (r) => (
-    <button key={r.t} className={"barrow"+(sel===r.t?" selrow":"")} onClick={()=>openTeam(r.t)}>
+    <button key={r.t} className={"barrow"+(sel===r.t?" selrow":"")} onClick={()=>openTeam(r.t)}
+      aria-label={`${r.t}, group ${r.g}, rank ${r.rank} of ${rows.length}, burden ${r.cmp.toFixed(1)}. Open itinerary.`}>
       <span className="rk">{r.rank}</span>
       <span className="fl">{r.f}</span>
       <span className="tn">{r.t}<em>Gr. {r.g} · {r.cf}{sortMode==="fifa"?` · FIFA ≈${r.fifa}`:""}{mode==="fair" && <span className="wasrank" title={`Actual (FIFA) rank ${actualRank[r.t]} → Fair rank ${r.rank}`}> · {actualRank[r.t]>r.rank?`▲${actualRank[r.t]-r.rank}`:actualRank[r.t]<r.rank?`▼${r.rank-actualRank[r.t]}`:"="}</span>}</em></span>
@@ -551,7 +189,7 @@ export default function WorldCup2026TravelBurdenLab(){
 
   const selRow = sel ? rows.find((r)=>r.t===sel) : null;
 
-  const reset = ()=>{ setH(DEFAULT_H); setW(DEFAULT_W); setLead(7); setBaseOv({}); setLeadOv({}); setMode("fifa"); };
+  const reset = ()=>{ setH(DEFAULT_H); setW(DEFAULT_W); setLead(LEAD); setBaseOv({}); setLeadOv({}); setMode("fifa"); };
 
   return (
     <div className={"lab"+(fontTheme==="editorial"?"":" font-"+fontTheme)}>
@@ -568,6 +206,9 @@ export default function WorldCup2026TravelBurdenLab(){
               Who got the brutal draw? Every team's <b>home → base camp → venue</b> journey,
               scored on five fatigue factors. Tune the model. Then let it redraw the map for fairness.
             </p>
+            <button className="findbtn" onClick={()=>setPickerOpen(true)}>
+              <Search size={15}/> Find your team
+            </button>
           </div>
           <div className="hero-badge">
             <Trophy size={15}/> GROUP STAGE · JUN 11–27
@@ -576,6 +217,9 @@ export default function WorldCup2026TravelBurdenLab(){
         <div className="prov">
           Groups, nations, base camps & all 72 fixtures <span className="ok">confirmed</span> · model
           weights & coefficients <span className="warn">tunable</span>
+          <button className="copylink" onClick={copyLink} title="Copy a link to this exact view">
+            {copied ? <><Check size={12}/> copied</> : <><Link2 size={12}/> copy link</>}
+          </button>
           <label className="fontsel">
             <span>Aa</span>
             <select value={fontTheme} onChange={(e)=>setFontTheme(e.target.value)}>
@@ -597,11 +241,35 @@ export default function WorldCup2026TravelBurdenLab(){
         <StatCard label="GINI" big={gi.toFixed(3)} sub="0 = equal · lower = fairer" accent="var(--gold)"/>
       </section>
 
+      {/* ---------------- VERDICT BANNER ("which team got screwed") ---------------- */}
+      <button className="verdict" onClick={()=>openTeam(hardest.t)} title={`Open ${hardest.t}'s journey`}>
+        <span className="verdict-tag">THE VERDICT</span>
+        <span className="verdict-txt">
+          <b>{hardest.f} {hardest.t}</b> drew the most punishing schedule — burden <b>{hardest.cmp.toFixed(1)}</b> vs{" "}
+          <b>{easiest.f} {easiest.t}</b>'s {easiest.cmp.toFixed(1)}
+          {easiest.cmp>0.5 && <> ({(hardest.cmp/easiest.cmp).toFixed(1)}× more)</>}. Fairness gap <b>{gap.toFixed(1)}</b>
+          {mode==="fair" ? <> after optimizing for {OBJ_META[objective].label.toLowerCase()}.</> : <> — switch to <b>Optimized</b> to redraw it fairer.</>}
+        </span>
+        <ChevronRight size={18} className="verdict-arrow"/>
+      </button>
+
       {/* ---------------- BODY: console + panel ---------------- */}
       <div className="body">
         {/* CONSOLE */}
-        <aside className="console">
+        <aside className={"console"+(consoleOpen?"":" collapsed")}>
+          <button className="console-mtoggle" onClick={()=>setConsoleOpen((o)=>!o)} aria-expanded={consoleOpen}>
+            <SlidersHorizontal size={14}/> {consoleOpen?"Hide":"Show"} tuning console
+          </button>
           <div className="console-head"><SlidersHorizontal size={15}/> TUNING CONSOLE</div>
+
+          <div className="presets">
+            <span className="presets-l">Quick presets</span>
+            <div className="presets-row">
+              {PRESETS.map((p)=>(
+                <button key={p.key} className={"presetbtn"+(presetActive(p)?" on":"")} onClick={()=>applyPreset(p)} title={p.desc}>{p.label}</button>
+              ))}
+            </div>
+          </div>
 
           <div className="modebox">
             <div className="modebox-t"><Scale size={13}/> Venue assignment</div>
@@ -652,6 +320,12 @@ export default function WorldCup2026TravelBurdenLab(){
               onChange={setLead} fmt={(x)=>`${x} d`} hint="default buffer for all teams; override any single team in its detail panel"/>
           </Group>
 
+          <button className="advtoggle" onClick={()=>setAdvanced(!advanced)} aria-expanded={advanced}>
+            {advanced ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+            Advanced: factor coefficients
+          </button>
+
+          {advanced && (<>
           <Group title="Jet-lag">
             <Slider label="Eastward jet-lag weight" v={H.aE} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,aE:x})}/>
             <Slider label="Westward jet-lag weight" v={H.aW} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,aW:x})}/>
@@ -676,6 +350,7 @@ export default function WorldCup2026TravelBurdenLab(){
           <Group title="Congestion">
             <Slider label="Ideal rest gap (days)" v={H.gMin} min={1} max={7} step={1} onChange={(x)=>setH({...H,gMin:x})} fmt={(x)=>`${x} d`}/>
           </Group>
+          </>)}
 
           <Group title="Composite weights">
             {METRICS.map((m)=>(
@@ -692,6 +367,7 @@ export default function WorldCup2026TravelBurdenLab(){
           <nav className="tabs">
             <Tab id="rank" cur={tab} set={setTab} icon={BarChart3}>Rankings</Tab>
             <Tab id="map"  cur={tab} set={setTab} icon={MapIcon}>Journey map</Tab>
+            <Tab id="sens" cur={tab} set={setTab} icon={Activity}>Stability</Tab>
             <Tab id="how"  cur={tab} set={setTab} icon={BookOpen}>How it works</Tab>
             <Tab id="math" cur={tab} set={setTab} icon={Sigma}>Formulae</Tab>
           </nav>
@@ -700,9 +376,9 @@ export default function WorldCup2026TravelBurdenLab(){
             <div className="rankwrap">
               <div className="legend">
                 {METRICS.map((m)=>(
-                  <span key={m.k} className="lg"><i style={{background:m.col}}/>{m.label}</span>
+                  <span key={m.k} className="lg"><i style={{background:m.col}}/><Term def={m.tip}>{m.label}</Term></span>
                 ))}
-                <span className="lg-note">bar length = total burden · click a team for its itinerary{mode==="fair"?" · ":""}{mode==="fair" && <b style={{color:"var(--gold)"}}>▲▼ change from actual fixtures</b>}</span>
+                <span className="lg-note">bar length = total <Term def="Composite fatigue score: 100 × the weighted blend of the five factors. Higher = a more punishing draw.">burden</Term> · click a team for its itinerary{mode==="fair"?" · ":""}{mode==="fair" && <b style={{color:"var(--gold)"}}>▲▼ change from actual fixtures</b>}</span>
               </div>
               <div className="sortbar">
                 <span className="sortbar-l">Sort</span>
@@ -712,20 +388,34 @@ export default function WorldCup2026TravelBurdenLab(){
                 {sortMode==="fifa" && <span className="sortbar-note">≈ snapshot, Apr 2026 (sub-20 estimated)</span>}
                 {sortMode==="group" && <span className="sortbar-note">rank # = overall burden rank · bars share one scale</span>}
               </div>
+              <div className="conffilter">
+                <span className="sortbar-l">Confed.</span>
+                <button className={"confchip"+(conf==="all"?" on":"")} onClick={()=>setConf("all")}>All</button>
+                {CONFEDERATIONS.map((c)=>(
+                  <button key={c} className={"confchip"+(conf===c?" on":"")} onClick={()=>setConf(conf===c?"all":c)}>{c}</button>
+                ))}
+              </div>
               {sortMode==="group" ? (
                 <div className="bars">
-                  {groups.map(({g,gr,gap:gg})=>(
+                  {groups.map(({g,gr,gap:gg})=>{
+                    const grf = conf==="all" ? gr : gr.filter((r)=>r.cf===conf);
+                    if(!grf.length) return null;
+                    return (
                     <div key={g} className="grp">
                       <div className="grp-h">
                         <span className="grp-g">Group {g}</span>
                         <span className="grp-gap">intra-group gap {gg.toFixed(1)}</span>
                       </div>
-                      {gr.map((r)=>barFor(r))}
+                      {grf.map((r)=>barFor(r))}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
-                <div className="bars">{displayed.map((r)=>barFor(r))}</div>
+                (()=>{ const flat = conf==="all" ? displayed : displayed.filter((r)=>r.cf===conf);
+                  return flat.length
+                    ? <div className="bars">{flat.map((r)=>barFor(r))}</div>
+                    : <div className="emptybars">No teams from {conf} in this view.</div>; })()
               )}
               <div className="sumrow">
                 <div className="sum-cell"><span>total</span><b>{curTot.toFixed(1)}</b></div>
@@ -740,9 +430,30 @@ export default function WorldCup2026TravelBurdenLab(){
                     <option value="range">min–max</option>
                   </select>
                 </div>
+                <div className="sum-export">
+                  <button className="expbtn" title="Download this ranking as CSV"
+                    onClick={()=>download(`wc2026-burden-${mode}.csv`,
+                      "rank,team,group,confederation,burden,jet,travel,heat,alt,cong,fifa_rank\n"+
+                      rows.map(r=>[r.rank,`"${r.t}"`,r.g,r.cf,r.cmp.toFixed(2),
+                        ...METRICS.map(m=>(r.parts[m.k]*100).toFixed(2)),r.fifa].join(",")).join("\n"),
+                      "text/csv")}>
+                    <Download size={12}/> CSV
+                  </button>
+                  <button className="expbtn" title="Download this ranking as JSON"
+                    onClick={()=>download(`wc2026-burden-${mode}.json`,
+                      JSON.stringify({mode,objective,weights:wN,coefficients:H,arrivalLead:lead,
+                        audit:MILP_AUDIT, teams:rows.map(r=>({rank:r.rank,team:r.t,group:r.g,confederation:r.cf,
+                          burden:+r.cmp.toFixed(3),factors:Object.fromEntries(METRICS.map(m=>[m.k,+(r.parts[m.k]*100).toFixed(3)])),
+                          venues:r.venues,dates:r.dates,fifaRank:r.fifa}))}, null, 2),
+                      "application/json")}>
+                    <Download size={12}/> JSON
+                  </button>
+                </div>
               </div>
             </div>
           )}
+
+          {tab==="sens" && <Sensitivity H={H} wN={wN} lead={lead} leadOv={leadOv} baseOv={baseOv} rows={rows}/>}
 
           {tab==="map" && <JourneyMap row={selRow} onPick={setSel} onDetails={openTeam} rows={rows}/>}
 
@@ -752,8 +463,11 @@ export default function WorldCup2026TravelBurdenLab(){
         </main>
       </div>
 
+      {/* ---------------- FIND YOUR TEAM ---------------- */}
+      {pickerOpen && <TeamPicker onPick={openTeam} onClose={()=>setPickerOpen(false)}/>}
+
       {/* ---------------- DETAIL DRAWER ---------------- */}
-      {selRow && drawerOpen && <Detail row={selRow} onClose={()=>setDrawerOpen(false)} onShowMap={(name)=>{setSel(name);setTab("map");setDrawerOpen(false);}} baseOv={baseOv} setBaseOv={setBaseOv} leadOv={leadOv} setLeadOv={setLeadOv} lead={lead} rows={rows}/>}
+      {selRow && drawerOpen && <Detail row={selRow} onClose={()=>setDrawerOpen(false)} onShowMap={(name)=>{setSel(name);setTab("map");setDrawerOpen(false);}} baseOv={baseOv} setBaseOv={setBaseOv} leadOv={leadOv} setLeadOv={setLeadOv} lead={lead} rows={rows} copyLink={copyLink} copied={copied} mode={mode} objective={objective}/>}
 
       <footer className="foot">
         Built for exploration · five-factor fatigue model over the confirmed WC2026 group draw ·
@@ -775,6 +489,46 @@ function StatCard({label,big,flag,sub,accent,onClick}){
 }
 function Group({title,children}){
   return (<div className="grp"><div className="grp-t">{title}</div>{children}</div>);
+}
+// inline jargon tooltip (hover / focus) — dotted underline, native title for a11y
+function Term({children, def}){
+  return <abbr className="term" title={def} tabIndex={0}>{children}</abbr>;
+}
+// "find your team" overlay: searchable flag grid grouped by confederation
+function TeamPicker({onPick,onClose}){
+  const [q,setQ]=useState("");
+  const ql=q.trim().toLowerCase();
+  useEffect(()=>{
+    const onKey=(e)=>{ if(e.key==="Escape") onClose(); };
+    window.addEventListener("keydown",onKey); return ()=>window.removeEventListener("keydown",onKey);
+  },[onClose]);
+  return (
+    <div className="picker-wrap" onClick={onClose}>
+      <div className="picker" onClick={(e)=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Find your team">
+        <button className="dclose" onClick={onClose} aria-label="Close"><X size={18}/></button>
+        <div className="picker-h"><Search size={16}/> Find your team</div>
+        <input className="picker-q" autoFocus placeholder="Search 48 teams…" value={q} onChange={(e)=>setQ(e.target.value)}/>
+        <div className="picker-body">
+          {CONFEDERATIONS.map((cf)=>{
+            const ts=TEAMS.filter((t)=>t.cf===cf && (!ql || t.t.toLowerCase().includes(ql)));
+            if(!ts.length) return null;
+            return (
+              <div key={cf} className="picker-conf">
+                <div className="picker-conf-l">{cf}</div>
+                <div className="picker-grid">
+                  {ts.map((t)=>(
+                    <button key={t.t} className="picker-team" onClick={()=>{onPick(t.t);onClose();}}>
+                      <span className="picker-flag">{t.f}</span><span className="picker-tn">{t.t}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 }
 function Slider({label,v,min,max,step,onChange,fmt,color,hint}){
   const pct = ((v-min)/(max-min))*100;
@@ -849,6 +603,29 @@ function HowItWorks(){
           no two matches can share a stadium on the same day, so it is a real assignment problem, not
           twelve independent ones. See the <b>Formulae</b> tab for the optimisation.
         </p>
+      </div>
+
+      <div className="prov-block">
+        <div className="how-comp-t"><ShieldCheck size={14}/> Data provenance</div>
+        <div className="prov-rows">
+          <div className="prov-r"><span className="pv-badge ok"><ShieldCheck size={11}/> confirmed</span>
+            All 72 group-stage fixtures (teams, venue, date), the 12 groups, home nations, announced base camps, and host-city geography (lat/lon, elevation, June UTC offset).</div>
+          <div className="prov-r"><span className="pv-badge est"><Search size={11}/> estimated</span>
+            FIFA world ranking — top-20 + Canada are published; teams below ~20 are approximate (used only for the FIFA-rank sort, never in the burden score).</div>
+          <div className="prov-r"><span className="pv-badge proxy"><AlertTriangle size={11}/> proxy</span>
+            Heat is a hand-set seasonal WBGT estimate per city. It ignores kickoff time, humidity, and closed-roof / air-conditioned stadiums. Model coefficients and reference scales are reasoned defaults, not fitted.</div>
+        </div>
+      </div>
+
+      <div className="caveat-block">
+        <div className="how-comp-t"><AlertTriangle size={14}/> What this does <u>not</u> claim</div>
+        <ul className="caveat-list">
+          <li>It's an <b>illustrative, tunable model</b> — not calibrated against real fatigue or performance data. "FIFA is unfair by X" is relative to <i>this</i> model and your weights.</li>
+          <li>The optimizer holds <b>base camps and match dates fixed</b>, so it can only move travel/heat/altitude — never jet-lag or congestion.</li>
+          <li>Its constraints are <b>looser than FIFA's real ones</b> (no stadium capacity, broadcast windows, or regional clustering), so the fairness gains are an upper bound, not an operational schedule.</li>
+          <li>Only <b>minimax at default weights</b> is certified optimal (matches the exact CBC solver); the other objectives are near-optimal heuristics.</li>
+        </ul>
+        <p className="caveat-foot">Check the <b>Stability</b> tab to see how much the ranking depends on your weight choices, and export the full data from the Rankings tab to re-derive it yourself.</p>
       </div>
     </div>
   );
@@ -1049,7 +826,10 @@ function JourneyMap({row,onPick,onDetails,rows,embedded}){
         {row && <button className="map-details" onClick={()=>onDetails(row.t)}>full details →</button>}
       </div>)}
       {!embedded && !row && <div className="map-hint">Choose a team above to draw its <b>home → base camp → group venues</b> route.</div>}
-      <svg viewBox={`0 0 ${W} ${Hh}`} className="map-svg">
+      <svg viewBox={`0 0 ${W} ${Hh}`} className="map-svg" role="img"
+        aria-label={row
+          ? `Journey map for ${row.t}: home ${C[row.o].n}, base camp ${C[row.base].n}, venues ${row.venues.map((k)=>C[k].n).join(", ")}.`
+          : "Map of the 16 World Cup host cities. Select a team to trace its home, base camp and venue route."}>
         <defs>
           <radialGradient id="ocean" cx="50%" cy="40%" r="75%">
             <stop offset="0%" stopColor="#eef4f3"/><stop offset="100%" stopColor="#e3ece9"/>
@@ -1140,8 +920,74 @@ function JourneyMap({row,onPick,onDetails,rows,embedded}){
 }
 
 // ---- detail drawer ----
-function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,rows}){
+// deterministic PRNG so the Monte-Carlo stability run is stable across renders
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+// Stability tab: re-rank under many perturbed weightings; show each team's rank range
+function Sensitivity({H, wN, lead, leadOv, baseOv, rows}){
+  const M=240;
+  const data = useMemo(()=>{
+    const rng=mulberry32(0x9e3779b9);
+    const leadOf=(t)=>leadOv[t]!=null?leadOv[t]:lead;
+    const baseOf=(t)=>baseOv[t]||BASES[t];
+    const acc={}; TEAMS.forEach((t)=>{acc[t.t]={ranks:[],top5:0};});
+    for(let s=0;s<M;s++){
+      const jw={}; let sum=0;
+      for(const m of METRICS){ const j=wN[m.k]*(1+(rng()-0.5)); jw[m.k]=Math.max(0,j); sum+=jw[m.k]; }
+      sum=sum||1; for(const k in jw) jw[k]/=sum;
+      const b=burdensFor(ACTUAL_CITY,H,jw,leadOf,baseOf);
+      Object.entries(b).sort((a,c)=>c[1]-a[1]).forEach(([nm],i)=>{ acc[nm].ranks.push(i+1); if(i<5) acc[nm].top5++; });
+    }
+    const out={};
+    for(const nm in acc){ const rs=acc[nm].ranks.sort((a,c)=>a-c);
+      out[nm]={min:rs[0],max:rs[rs.length-1],med:rs[Math.floor(rs.length/2)],top5:acc[nm].top5/M,range:rs[rs.length-1]-rs[0]}; }
+    return out;
+  },[H,wN,lead,leadOv,baseOv]);
+
+  const n=rows.length, hardest=rows[0];
+  const pct=(r)=>((r-1)/(n-1))*100;
+  const tag=(range)=> range<=4?{t:"rock-solid",c:"var(--green)"} : range<=10?{t:"steady",c:"var(--cyan)"} : range<=20?{t:"shifts",c:"var(--gold)"} : {t:"swingy",c:"var(--magenta)"};
+  return (
+    <div className="sens">
+      <div className="sens-intro">
+        <b>How stable is this ranking?</b> We re-ran the model <b>{M}×</b>, each time randomly nudging every weight by up to ±50% and renormalising. Each bar is the range of finishing positions a team landed in — a short bar means the verdict barely depends on your weight choices.
+      </div>
+      <div className="sens-call">
+        {hardest.f} <b>{hardest.t}</b> sits among the 5 hardest draws in <b>{Math.round((data[hardest.t]?.top5||0)*100)}%</b> of reweightings.
+      </div>
+      <div className="sens-list">
+        {rows.map((r)=>{ const d=data[r.t]; if(!d) return null; const tg=tag(d.range);
+          return (
+            <div key={r.t} className="sens-row">
+              <span className="sens-rk">{r.rank}</span>
+              <span className="sens-fl">{r.f}</span>
+              <span className="sens-tn">{r.t}</span>
+              <span className="sens-track" title={`ranks #${d.min}–#${d.max} across ${M} reweightings (median #${d.med})`}>
+                <i className="sens-range" style={{left:`${pct(d.min)}%`,width:`${Math.max(0,pct(d.max)-pct(d.min))}%`}}/>
+                <i className="sens-med" style={{left:`${pct(d.med)}%`}}/>
+              </span>
+              <span className="sens-tag" style={{color:tg.c}}>{tg.t}<em>#{d.min}–{d.max}</em></span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="sens-foot">Lower rank # = harder draw. The dot is the median finishing position across the {M} runs. Weights are perturbed; coefficients and arrival lead stay at the current console values.</div>
+    </div>
+  );
+}
+function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,rows,copyLink,copied,mode,objective}){
   const rivals = rows.filter((r)=>r.g===row.g && r.t!==row.t);
+  const downloadCard = ()=>{
+    const svg = buildCardSVG({ team:row.t, flag:row.f, rank:row.rank, n:rows.length, burden:row.cmp,
+      mode, objective, parts:row.parts, takeaway:takeawayFor(row, rows.length), url:window.location.href });
+    downloadCardPNG(svg, `wc2026-${row.t.replace(/[^a-z0-9]+/gi,"-").toLowerCase()}-burden.png`, 2);
+  };
+  // a11y: focus the close button on open, close on Escape
+  const closeRef = useRef(null);
+  useEffect(()=>{
+    closeRef.current?.focus();
+    const onKey=(e)=>{ if(e.key==="Escape") onClose(); };
+    window.addEventListener("keydown",onKey); return ()=>window.removeEventListener("keydown",onKey);
+  },[onClose]);
   const effLead = leadOv[row.t] != null ? leadOv[row.t] : lead;
   // radar geometry
   const cx=96,cy=92,Rr=70;
@@ -1154,18 +1000,28 @@ function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,ro
   const poly=axes.map((a)=>`${a.x},${a.y}`).join(" ");
   return (
     <div className="drawer-wrap" onClick={onClose}>
-      <div className="drawer" onClick={(e)=>e.stopPropagation()}>
-        <button className="dclose" onClick={onClose}><X size={18}/></button>
+      <div className="drawer" onClick={(e)=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${row.t} travel burden detail`}>
+        <button ref={closeRef} className="dclose" onClick={onClose} aria-label="Close detail"><X size={18}/></button>
         <div className="dhead">
           <span className="dflag">{row.f}</span>
           <div>
             <h2>{row.t}</h2>
             <div className="dmeta">Group {row.g} · {row.cf} · home {C[row.o].n}</div>
+            <div className="dshare">
+              {copyLink && <button className="copylink" onClick={copyLink} title="Copy a link to this team's view">
+                {copied ? <><Check size={12}/> link copied</> : <><Link2 size={12}/> copy link</>}
+              </button>}
+              <button className="copylink dcard" onClick={downloadCard} title="Download a shareable burden card (PNG)">
+                <Download size={12}/> share card
+              </button>
+            </div>
           </div>
           <div className="dscore">
             <span>#{row.rank}</span><b>{row.cmp.toFixed(1)}</b><em>burden</em>
           </div>
         </div>
+
+        <div className="dtakeaway">{takeawayFor(row, rows.length)}</div>
 
         <div className="dsec-t">Journey map</div>
         <JourneyMap row={row} embedded rows={rows} onPick={()=>{}} onDetails={()=>{}}/>
@@ -1317,6 +1173,11 @@ const CSS = `
 .prov{position:relative;margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--mut);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .prov .ok{color:var(--green);border:1px solid rgba(25,169,87,.4);background:rgba(25,169,87,.07);padding:2px 7px;border-radius:6px}
 .prov .warn{color:var(--gold);border:1px solid rgba(217,135,18,.4);background:rgba(217,135,18,.07);padding:2px 7px;border-radius:6px}
+.copylink{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--cyan);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer;transition:.12s}
+.copylink:hover{border-color:var(--cyan);background:rgba(10,165,149,.07)}
+.dshare{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.dcard{color:var(--gold)!important;border-color:rgba(217,135,18,.4)!important}
+.dcard:hover{border-color:var(--gold)!important;background:rgba(217,135,18,.08)!important}
 .fontsel{margin-left:auto;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--mut)}
 .fontsel>span{font-family:var(--disp);font-weight:var(--disp-w);font-size:15px;color:var(--ink2);line-height:1}
 .fontsel select{font-family:var(--mono);font-size:11px;color:var(--ink2);background:#fff;border:1px solid var(--line);border-radius:7px;padding:3px 6px;cursor:pointer}
@@ -1331,7 +1192,14 @@ const CSS = `
 
 /* body */
 .body{display:grid;grid-template-columns:316px 1fr;gap:14px;align-items:start}
-@media(max-width:900px){.body{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:900px){
+  .body{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .console .console-mtoggle{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    color:var(--ink2);background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px;cursor:pointer}
+  .console.collapsed{padding-bottom:0}
+  .console.collapsed > :not(.console-mtoggle){display:none}
+}
 
 /* console */
 .console{border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow);padding:14px;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
@@ -1369,6 +1237,98 @@ const CSS = `
 .reset{width:100%;margin-top:14px;border:1px solid var(--line);background:var(--card2);color:var(--mut);
   font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:10px;border-radius:10px;cursor:pointer;display:flex;gap:7px;align-items:center;justify-content:center;transition:.15s}
 .reset:hover{color:var(--magenta);border-color:rgba(237,31,120,.4)}
+
+/* verdict banner ("which team got screwed") */
+.verdict{width:100%;text-align:left;display:flex;align-items:center;gap:14px;margin-bottom:14px;cursor:pointer;
+  background:linear-gradient(96deg,rgba(237,31,120,.07),rgba(106,92,240,.05));border:1px solid var(--line);border-left:4px solid var(--magenta);
+  border-radius:13px;padding:13px 16px;transition:.15s}
+.verdict:hover{border-left-color:var(--violet);box-shadow:var(--shadow)}
+.verdict-tag{flex:0 0 auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--magenta);align-self:flex-start;margin-top:2px}
+.verdict-txt{font-size:14px;line-height:1.5;color:var(--ink2)}
+.verdict-txt b{color:var(--ink)}
+.verdict-arrow{flex:0 0 auto;color:var(--mut);margin-left:auto;transition:.15s}
+.verdict:hover .verdict-arrow{color:var(--magenta);transform:translateX(3px)}
+
+/* find-your-team CTA (hero) */
+.findbtn{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+  color:#fff;background:linear-gradient(96deg,var(--magenta),var(--violet));border:none;border-radius:999px;padding:9px 16px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(237,31,120,.28);transition:.15s}
+.findbtn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(237,31,120,.36)}
+
+/* presets + advanced disclosure (console) */
+.presets{margin-bottom:12px}
+.presets-l{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.presets-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.presetbtn{font-family:var(--mono);font-size:10.5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink2);cursor:pointer;transition:.12s}
+.presetbtn:hover{border-color:var(--violet);color:var(--violet)}
+.presetbtn.on{background:var(--violet);border-color:var(--violet);color:#fff}
+.advtoggle{width:100%;margin:4px 0 2px;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.05em;
+  color:var(--mut);background:none;border:none;border-top:1px dashed var(--line);padding:11px 2px 4px;cursor:pointer;transition:.12s}
+.advtoggle:hover{color:var(--ink2)}
+.advtoggle[aria-expanded="true"]{color:var(--ink2)}
+.console-mtoggle{display:none}
+
+/* confederation filter + empty state (rankings) */
+.conffilter{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:0 2px 10px}
+.confchip{font-family:var(--mono);font-size:10px;letter-spacing:.04em;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--mut);cursor:pointer;transition:.12s}
+.confchip:hover{border-color:var(--cyan);color:var(--cyan)}
+.confchip.on{background:var(--cyan);border-color:var(--cyan);color:#fff}
+.emptybars{padding:34px 12px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--mut)}
+
+/* jargon tooltip + drawer takeaway */
+.term{text-decoration:underline dotted;text-underline-offset:2px;cursor:help;color:inherit}
+.term:focus{outline:2px solid var(--cyan);outline-offset:1px;border-radius:2px}
+.dtakeaway{margin:2px 0 14px;font-size:13.5px;line-height:1.45;color:var(--ink2);border-left:3px solid var(--cyan);padding:7px 0 7px 11px;background:rgba(10,165,149,.05);border-radius:0 8px 8px 0}
+
+/* find-your-team picker overlay */
+.picker-wrap{position:fixed;inset:0;z-index:60;background:rgba(22,25,28,.42);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:7vh 16px 16px;animation:fade .2s ease}
+.picker{position:relative;width:min(680px,96vw);max-height:84vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px}
+.picker-h{font-family:var(--disp);font-size:24px;display:flex;align-items:center;gap:9px;margin:0 0 4px}
+.picker-q{width:100%;box-sizing:border-box;font-family:var(--body);font-size:14px;padding:10px 13px;border:1px solid var(--line);border-radius:11px;margin:10px 0 16px;outline:none}
+.picker-q:focus{border-color:var(--cyan)}
+.picker-conf{margin-bottom:14px}
+.picker-conf-l{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--mut);margin-bottom:7px}
+.picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px}
+.picker-team{display:flex;align-items:center;gap:8px;font-family:var(--body);font-size:13px;color:var(--ink);text-align:left;
+  background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;cursor:pointer;transition:.12s}
+.picker-team:hover{border-color:var(--magenta);background:#fff;transform:translateY(-1px)}
+.picker-flag{font-size:18px;line-height:1}
+.picker-tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* data export buttons (rankings summary) */
+.sum-export{margin-left:auto;display:flex;gap:6px;align-items:center}
+.expbtn{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--ink2);
+  background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 9px;cursor:pointer;transition:.12s}
+.expbtn:hover{border-color:var(--cyan);color:var(--cyan)}
+
+/* Stability (sensitivity) tab */
+.sens{padding:16px 16px 8px}
+.sens-intro{font-size:13.5px;line-height:1.55;color:var(--ink2);max-width:680px}
+.sens-call{margin:14px 0 16px;font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-left:3px solid var(--magenta);border-radius:0 9px 9px 0;padding:10px 13px}
+.sens-list{display:flex;flex-direction:column;gap:3px}
+.sens-row{display:grid;grid-template-columns:24px 22px minmax(80px,150px) 1fr 96px;align-items:center;gap:9px;padding:3px 0}
+.sens-rk{font-family:var(--mono);font-size:11px;color:var(--mut);text-align:right}
+.sens-fl{font-size:15px}
+.sens-tn{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sens-track{position:relative;height:9px;background:rgba(22,25,28,.06);border-radius:999px}
+.sens-range{position:absolute;top:0;height:9px;min-width:4px;background:linear-gradient(90deg,var(--magenta),var(--cyan));border-radius:999px;opacity:.55}
+.sens-med{position:absolute;top:-2px;width:3px;height:13px;background:var(--ink);border-radius:2px;transform:translateX(-1px)}
+.sens-tag{font-family:var(--mono);font-size:10px;display:flex;flex-direction:column;line-height:1.25;text-align:right}
+.sens-tag em{font-style:normal;color:var(--mut);font-size:9.5px}
+.sens-foot{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--mut);line-height:1.5}
+
+/* provenance + caveat blocks (how-it-works) */
+.prov-block,.caveat-block{margin-top:16px;border:1px solid var(--line);border-radius:13px;background:var(--card2);padding:15px 17px}
+.prov-rows{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.prov-r{font-size:13px;line-height:1.5;color:var(--ink2)}
+.pv-badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;
+  padding:2px 7px;border-radius:999px;margin-right:7px;vertical-align:middle;white-space:nowrap}
+.pv-badge.ok{color:var(--green);background:rgba(25,169,87,.1)}
+.pv-badge.est{color:var(--cyan);background:rgba(10,165,149,.1)}
+.pv-badge.proxy{color:var(--gold);background:rgba(217,135,18,.12)}
+.caveat-list{margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:8px}
+.caveat-list li{font-size:13px;line-height:1.5;color:var(--ink2)}
+.caveat-foot{margin:12px 0 0;font-size:12.5px;color:var(--mut)}
 
 /* panel + tabs */
 .panel{border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow);padding:6px;min-height:520px}
@@ -1557,9 +1517,24 @@ const CSS = `
   .dhead h2{font-size:23px}
   .dscore b{font-size:25px}
   .map-foot{flex-wrap:wrap;gap:12px}
+  /* detail drawer becomes a bottom sheet */
+  .drawer-wrap{justify-content:center;align-items:flex-end}
+  .drawer{width:100%;height:auto;max-height:90vh;border-left:none;border-top:1px solid var(--line);
+    border-radius:18px 18px 0 0;box-shadow:0 -14px 44px rgba(22,25,28,.18);animation:slideup .26s cubic-bezier(.2,.8,.2,1)}
+  .verdict{flex-wrap:wrap;gap:8px}
+  .verdict-arrow{display:none}
+  .sens{padding:12px 8px}
+  .sens-row{grid-template-columns:20px 18px minmax(64px,1fr) 1.4fr 72px;gap:6px}
+  .sens-tn{font-size:11.5px}
+  .sum-export{width:100%;margin-left:0;justify-content:flex-end}
 }
+@keyframes slideup{from{transform:translateY(40px);opacity:.5}to{transform:none;opacity:1}}
 @media(max-width:360px){
   .stats{gap:8px}
   .barrow{grid-template-columns:16px 18px 1fr 1.3fr 30px;gap:5px}
+}
+@media(prefers-reduced-motion:reduce){
+  .lab *,.hub *,.picker,.drawer{animation:none!important;transition:none!important}
+  .leg{stroke-dashoffset:0!important}
 }
 `;

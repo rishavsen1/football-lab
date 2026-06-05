@@ -1,83 +1,26 @@
-import re, math, json
+import math, json, os
 import pulp
 
-import os
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = open(os.path.join(HERE, "..", "src", "wc2026_travel_burden_lab.jsx")).read()
+# Single source of truth: regenerate with `npm run gen:data`
+# (emits this from src/data/wc2026.js + src/model/burden.js). Do not hand-mirror.
+DATA = json.load(open(os.path.join(HERE, "wc2026.data.json")))
 
-# ---- parse C (city geo) ----
-C = {}
-for m in re.finditer(r'^\s*([A-Za-z]\w*):\{(n:"[^"]*".*?)\},?\s*$', SRC, re.M):
-    key, body = m.group(1), m.group(2)
-    def g(p):
-        mm = re.search(p+r':(-?\d+(?:\.\d+)?)', body); return float(mm.group(1)) if mm else None
-    nm = re.search(r'n:"([^"]*)"', body)
-    if not nm: continue
-    C[key] = dict(n=nm.group(1), lat=g('lat'), lon=g('lon'), utc=g('utc'), el=g('el'), wb=g('wb'))
-# keep only entries that have lat/lon (real cities)
-C = {k:v for k,v in C.items() if v['lat'] is not None}
+C     = DATA["C"]                      # cityKey -> {n, lat, lon, utc, [el], [wb], [co]}
+BASES = DATA["BASES"]                  # team -> base-camp cityKey
+TEAMS = DATA["TEAMS"]                  # team -> {f, cf, g, o}
+H     = DATA["model"]["H"]
+W     = DATA["model"]["W"]
+REF   = DATA["model"]["REF"]
+LEAD  = DATA["model"]["LEAD"]
+HOSTS = DATA["hosts"]["ALL"]
+US    = DATA["hosts"]["US"]
+MX    = DATA["hosts"]["MX"]
+CA    = DATA["hosts"]["CA"]
+# 72 real group-stage fixtures: (day, group, home, away, cityKey)
+F     = [tuple(x) for x in DATA["FIXTURES"]]
 
-# ---- parse BASES ----
-bm = re.search(r'const BASES = \{(.*?)\};', SRC, re.S)
-BASES = dict(re.findall(r'"([^"]+)":"(\w+)"', bm.group(1)))
-
-# ---- parse TEAMS (name, group, origin) ----
-TEAMS = {}
-for m in re.finditer(r'\{t:"([^"]+)",f:"[^"]*",cf:"([^"]+)",g:"([A-L])",o:"(\w+)"\}', SRC):
-    TEAMS[m.group(1)] = dict(cf=m.group(2), g=m.group(3), o=m.group(4))
 assert len(TEAMS)==48, len(TEAMS)
-
-# ---- defaults (mirror DEFAULT_H / DEFAULT_W / REF / lead) ----
-H = dict(aE=1.0,aW=0.6,kappa=1.0,delta=0.5,tau=2.0,thetaHeat=28,h0=1500,bExp=1.0,bTrans=0.5,gMin=4)
-W = dict(jet=0.30,travel=0.30,heat=0.15,alt=0.15,cong=0.10)
-REF = dict(jet=12,travel=25,heat=12,alt=25,cong=6)
-LEAD = 7
-
-HOSTS = ["LA","SF","SEA","VAN","DAL","HOU","KC","ATL","MIA","PHI","BOS","NY","TOR","MEX","GDL","MTY"]
-US = ["LA","SF","SEA","DAL","HOU","KC","ATL","MIA","PHI","BOS","NY"]
-MX = ["MEX","GDL","MTY"]; CA = ["TOR","VAN"]
-
-# ---- 72 real group-stage fixtures: (day, group, home, away, cityKey) ----
-# playoff slots resolved: UEFA-D=Czechia, UEFA-A=Bosnia & Herz., UEFA-C=Türkiye,
-# UEFA-B=Sweden, FIFA-1=DR Congo, FIFA-2=Iraq.  Source: USA TODAY / AOL schedule.
-F = [
- (11,"A","Mexico","South Africa","MEX"),(11,"A","South Korea","Czechia","GDL"),
- (12,"B","Canada","Bosnia & Herz.","TOR"),(12,"D","United States","Paraguay","LA"),
- (13,"C","Brazil","Morocco","NY"),(13,"D","Australia","Türkiye","VAN"),
- (13,"C","Haiti","Scotland","BOS"),(13,"B","Qatar","Switzerland","SF"),
- (14,"E","Germany","Curaçao","HOU"),(14,"E","Ivory Coast","Ecuador","PHI"),
- (14,"F","Netherlands","Japan","DAL"),(14,"F","Sweden","Tunisia","MTY"),
- (15,"H","Spain","Cape Verde","ATL"),(15,"G","Belgium","Egypt","SEA"),
- (15,"H","Saudi Arabia","Uruguay","MIA"),(15,"G","Iran","New Zealand","LA"),
- (16,"I","France","Senegal","NY"),(16,"I","Iraq","Norway","BOS"),
- (16,"J","Argentina","Algeria","KC"),(16,"J","Austria","Jordan","SF"),
- (17,"K","Portugal","DR Congo","HOU"),(17,"L","England","Croatia","DAL"),
- (17,"L","Ghana","Panama","TOR"),(17,"K","Uzbekistan","Colombia","MEX"),
- (18,"A","Czechia","South Africa","ATL"),(18,"B","Switzerland","Bosnia & Herz.","LA"),
- (18,"B","Canada","Qatar","VAN"),(18,"A","Mexico","South Korea","GDL"),
- (19,"D","United States","Australia","SEA"),(19,"C","Scotland","Morocco","BOS"),
- (19,"C","Brazil","Haiti","PHI"),(19,"D","Türkiye","Paraguay","SF"),
- (20,"F","Netherlands","Sweden","HOU"),(20,"E","Germany","Ivory Coast","TOR"),
- (20,"E","Ecuador","Curaçao","KC"),(20,"F","Tunisia","Japan","MTY"),
- (21,"H","Spain","Saudi Arabia","ATL"),(21,"G","Belgium","Iran","LA"),
- (21,"H","Uruguay","Cape Verde","MIA"),(21,"G","New Zealand","Egypt","VAN"),
- (22,"J","Argentina","Austria","DAL"),(22,"I","France","Iraq","PHI"),
- (22,"I","Norway","Senegal","NY"),(22,"J","Jordan","Algeria","SF"),
- (23,"K","Portugal","Uzbekistan","HOU"),(23,"L","England","Ghana","BOS"),
- (23,"L","Panama","Croatia","TOR"),(23,"K","Colombia","DR Congo","GDL"),
- (24,"B","Canada","Switzerland","VAN"),(24,"B","Bosnia & Herz.","Qatar","SEA"),
- (24,"C","Scotland","Brazil","MIA"),(24,"C","Morocco","Haiti","ATL"),
- (24,"A","Mexico","Czechia","MEX"),(24,"A","South Korea","South Africa","MTY"),
- (25,"E","Ecuador","Germany","NY"),(25,"E","Curaçao","Ivory Coast","PHI"),
- (25,"F","Tunisia","Netherlands","KC"),(25,"F","Japan","Sweden","DAL"),
- (25,"D","United States","Türkiye","LA"),(25,"D","Paraguay","Australia","SF"),
- (26,"I","Norway","France","BOS"),(26,"I","Senegal","Iraq","TOR"),
- (26,"G","New Zealand","Belgium","VAN"),(26,"G","Egypt","Iran","SEA"),
- (26,"H","Uruguay","Spain","GDL"),(26,"H","Cape Verde","Saudi Arabia","HOU"),
- (27,"L","Panama","England","NY"),(27,"L","Croatia","Ghana","PHI"),
- (27,"K","Colombia","Portugal","MIA"),(27,"K","DR Congo","Uzbekistan","ATL"),
- (27,"J","Jordan","Argentina","DAL"),(27,"J","Algeria","Austria","KC"),
-]
 assert len(F)==72, len(F)
 
 # ---- integrity checks ----

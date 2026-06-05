@@ -6,6 +6,8 @@ build/
 
 # generated
 tools/fixtures.js
+tools/wc2026.data.json
+public/og/
 
 # python
 __pycache__/

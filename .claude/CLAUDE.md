@@ -9,38 +9,46 @@ A growing **set of interactive experiments around football (soccer)**. Experimen
 ## Commands
 
 ```bash
-npm install                 # install JS deps (react, lucide-react, vite)
-npm run dev                 # Vite dev server (the lab)
-npm run build               # production build to dist/
+npm install                 # install JS deps (react, react-dom, react-router-dom, lucide-react, vite)
+npm run dev                 # Vite dev server (BASE_PATH=/ to serve at root locally)
+npm run build               # production build to dist/ (base path /football-lab/ for GitHub Pages)
 npm run preview             # serve the built bundle
+npm run gen:data            # emit tools/wc2026.data.json from src/data + src/model (run after data/model edits)
+npm run og                  # generate per-team social-preview PNGs to public/og/ (needs @resvg/resvg-js)
+npm run build:site          # full public build: og PNGs -> vite build -> per-team OG html in dist/t/ (set SITE_URL for absolute OG urls)
 
 # Python validator / reference solver (needs the .venv)
 .venv/bin/python tools/milp.py     # fixture integrity checks + exact CBC minimax + greedy-vs-MILP gap
 ```
 
-There is **no test runner and no linter configured**. `tools/milp.py` is the only validation harness — treat it as the source-of-truth check on the data and the optimizer. If you touch the model, fixtures, or optimizer, run it and confirm the printed numbers still match the README's headline result (worst team 27.6 → 20.7, gap 26.3 → 20.7, 49/72 relocated).
+There is **no JS test runner and no linter configured** (yet). `tools/milp.py` is the validation harness — treat it as the source-of-truth check on the data and the optimizer. If you touch the model, fixtures, or optimizer, run **`npm run gen:data && .venv/bin/python tools/milp.py`** and confirm the printed numbers still match the README's headline result (worst team 27.6 → 20.7, gap 26.3 → 20.7, 49/72 relocated).
 
 ## Architecture
 
-**Everything in the lab lives in one ~1.5k-line file: `src/wc2026_travel_burden_lab.jsx`.** It is self-contained — module-level data constants, the model math, the optimizer, the React component tree, and a single `CSS` template string. `src/main.jsx` and `index.html` are just the Vite mount. This single-file shape is inherited from the app's origin as a Claude artifact; the documented intent (see "Roadmap / handoff" below) is to split it into `src/data/`, `src/model/`, `src/optimize/`, `src/ui/`.
+**The app is a HashRouter SPA** mounted by `src/main.jsx` → `src/App.jsx`: route `/` = the multi-experiment hub (`src/Hub.jsx`), route `/wc2026` = the lab (`src/wc2026_travel_burden_lab.jsx`). HashRouter is deliberate — it makes client deep-links resolve on GitHub Pages with no server rewrites.
 
-The pieces, top to bottom in the file:
+Data and model have been **extracted out of the lab into shared, pure-JS modules** (no React/icon deps) so the browser app, the Node scripts, and the Python validator all consume one source of truth:
 
-- **Data constants** — `C` (16 host-city geos: lat/lon/UTC/elevation/WBGT proxy), `BASES`, `TEAMS`, `FIFA_RANK`, `FIXTURES` (the 72 real group-stage matches as `[day, group, home, away, cityKey]`), and baked reference solutions `MILP_OPT` / `MILP_AUDIT`. Derived: `ACTUAL_CITY`, `TEAM_MATCHES`, `MATCH_DAYS`, `allowedCities`, `REF`, `METRICS`.
-- **Model** — `haversine`, `effShift`, `rawMetrics` (the five fatigue factors: jet-lag, travel, heat, altitude, congestion), `scaled`, `composite`, `gini`. Coefficients live in `DEFAULT_H`; weights in `DEFAULT_W`; reference scales in `REF`. All are live-tunable in the UI.
-- **Optimizer** — `costTable`, `objScore`, `optimizeAssignment`. A constrained local search (single-move + same-day swap, warm-started from the real draw). The key structural fact: with base camps and match dates **fixed**, burden is linear in the venue assignment, so minimax is an exact MILP. The in-app heuristic reaches the exact CBC optimum **for minimax at default weights only**; Gap/Gini/Balanced/Total are near-optimal heuristics (hence the toggle is "Optimized", not "Optimal").
-- **Component `WorldCup2026TravelBurdenLab`** (default export) and its sub-components (`StatCard`, `Group`, `JourneyMap`, `Detail` drawer, `Formulae`, etc.).
+- **`src/data/wc2026.js`** — `C` (16 host-city geos + home origins + base camps), `BASES`, `TEAMS`, `FIFA_RANK`, `FIXTURES` (`[day, group, home, away, cityKey]`), baked `MILP_OPT`/`MILP_AUDIT`, host-city lists, `allowedCities`, and derived `TEAM_MATCHES`/`ACTUAL_CITY`/`MATCH_DAYS`.
+- **`src/model/burden.js`** — geometry (`haversine`, `bearing`, `effShift`), the five-factor model (`rawMetrics`/`scaled`/`composite`/`gini`), and the optimizer (`costTable`/`objScore`/`optimizeAssignment`). Coefficient defaults `DEFAULT_H`, weights `DEFAULT_W`, reference scales `REF`, default arrival-lead `LEAD` all live here.
+
+The **lab `.jsx`** still holds the React component tree, the `METRICS` icon/color table (depends on lucide), and the single `CSS` template string. It imports everything else from the two modules. Lab state (mode, objective, weights `W`, coefficients `H`, lead, per-team `baseOv`/`leadOv`, selected team, tab, sort) is serialized to the URL query string via `src/lib/urlState.js` + `useSearchParams` — only non-defaults are written, and a cold load hydrates from the link. `copyLink` (hero + drawer) copies the current deep link.
+
+Public-launch surface (milestone 1): tabs are Rankings / Journey map / **Stability** (`Sensitivity` Monte-Carlo rank-range panel) / How it works / Formulae. Friendliness: hero "Find your team" picker (`TeamPicker`), one-line `takeawayFor` takeaways, console quick-`PRESETS` + an "Advanced" disclosure hiding the 10 coefficient sliders, confederation filter chips, jargon `Term` tooltips. Shareability: a "verdict" banner, client-side PNG share card + build-time per-team OG cards (both via `src/lib/shareCard.js` `buildCardSVG`; `scripts/og.mjs` rasterizes with resvg, `scripts/prerender-og.mjs` writes `dist/t/<slug>/` OG pages). Credibility: provenance badges + caveats (How-it-works), CSV/JSON export (Rankings). Mobile/a11y: console collapses on small screens, drawer becomes a bottom sheet, `role="dialog"`/Esc/focus on the drawer, aria-labels on bars + map, `prefers-reduced-motion`. Deferred to later phases: Web Worker for the optimizer, generalising the 3-match assumption (knockouts), real WBGT, tests/CI, experiment #2.
+
+- **Optimizer** — constrained local search (single-move + same-day swap, warm-started from the real draw). Key structural fact: with base camps and match dates **fixed**, burden is linear in the venue assignment, so minimax is an exact MILP. The in-app heuristic reaches the exact CBC optimum **for minimax at default weights only**; Gap/Gini/Balanced/Total are near-optimal heuristics (hence the toggle is "Optimized", not "Optimal").
 
 **Data flow:** `FIXTURES` → `ACTUAL_CITY`/`TEAM_MATCHES` → (Optimized mode? `optimizeAssignment` : actual cities) → per-team venues/dates → `rawMetrics` → `composite` → sorted rows → bars/map/drawer. Dates never change across modes; only city assignments do.
 
-### `tools/milp.py` ↔ the app
+### `tools/milp.py` ↔ the app — now a single source of truth
 
-`milp.py` **reads `src/wc2026_travel_burden_lab.jsx` directly with regex** to extract `C`, `BASES`, `TEAMS`, and `FIXTURES`, then mirrors the model defaults (`H`, `W`, `REF`, `LEAD`) as Python literals. **These defaults are duplicated, not shared** — if you change a coefficient, weight, reference scale, or the fixture/city data in the `.jsx`, you must mirror it in `milp.py` or the validator will silently check a different model. The script also emits `tools/fixtures.js` (a generated, gitignored extract of `FIXTURES` + the CBC solution) — do not hand-edit that file.
+`scripts/gen-data.mjs` (run via `npm run gen:data`) imports `src/data/wc2026.js` + `src/model/burden.js` and writes **`tools/wc2026.data.json`** (data + model defaults). `milp.py` loads that JSON — it no longer regex-scrapes the JSX or hardcodes `H`/`W`/`REF`/`LEAD`/fixtures. So **changing a coefficient/weight/fixture in the JS modules and re-running `gen:data` automatically flows to the validator** (the old duplicated-defaults drift is gone). `milp.py` still re-implements the math independently in Python (that's the cross-check) and still emits `tools/fixtures.js` (gitignored) to regenerate the baked `MILP_OPT`/`MILP_AUDIT`.
 
 ## Gotchas
 
-- **`rawMetrics` hardcodes exactly 3 matches per team** (`dates[1]`, `dates[2]`, `m<3`). Any non-3-match team (knockouts, byes) breaks silently. Generalise this before extending past the group stage.
-- **Hand-entered data has no runtime validation in the app** — only `milp.py` checks fixture integrity. Don't trust edits to `C`/`BASES`/`FIFA_RANK`/`wb` until milp.py passes.
+- **`rawMetrics` (in `src/model/burden.js`) hardcodes exactly 3 matches per team** (`dates[1]`, `dates[2]`, `m<3`). Any non-3-match team (knockouts, byes) breaks silently. Generalise this before extending past the group stage.
+- **Hand-entered data has no runtime validation in the app** — only `milp.py` checks fixture integrity. Don't trust edits to `C`/`BASES`/`FIFA_RANK`/`wb` until `npm run gen:data && python tools/milp.py` passes.
+- After editing `src/data/wc2026.js` or `src/model/burden.js`, **run `npm run gen:data`** or the validator keeps checking the previous JSON snapshot.
 - The optimizer runs inside a `useMemo` in Optimized mode and rescans all 48 burdens per candidate move. Heavy objectives + fast slider dragging can drop frames; debounce/Web-Worker is on the roadmap.
 - The model is an **illustrative, tunable heuristic** — coefficients are reasoned, not fitted to fatigue data. "FIFA is unfair by X" is model-relative. Keep this framing in any user-facing copy.
 
