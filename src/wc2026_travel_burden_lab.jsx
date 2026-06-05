@@ -188,6 +188,8 @@ export default function WorldCup2026TravelBurdenLab(){
   );
 
   const selRow = sel ? rows.find((r)=>r.t===sel) : null;
+  // intuitive "Nx tougher" framing for fans (guard against a near-zero easiest draw)
+  const ratio = easiest && easiest.cmp>0.5 ? hardest.cmp/easiest.cmp : null;
 
   const reset = ()=>{ setH(DEFAULT_H); setW(DEFAULT_W); setLead(LEAD); setBaseOv({}); setLeadOv({}); setMode("fifa"); };
 
@@ -200,19 +202,36 @@ export default function WorldCup2026TravelBurdenLab(){
         <div className="hero-glow" />
         <div className="hero-row">
           <div>
-            <div className="kicker">FIFA WORLD CUP 26 · 🇺🇸 🇨🇦 🇲🇽 · 48 TEAMS · 16 CITIES</div>
-            <h1 className="title">TRAVEL BURDEN LAB</h1>
+            <div className="kicker">TRAVEL BURDEN LAB · WORLD CUP 26 · 🇺🇸 🇨🇦 🇲🇽 · 48 TEAMS</div>
+            <h1 className="title">WHO GOT THE BRUTAL DRAW?</h1>
             <p className="sub">
-              Who got the brutal draw? Every team's <b>home → base camp → venue</b> journey,
-              scored on five fatigue factors. Tune the model. Then let it redraw the map for fairness.
+              The first <b>48-team</b> World Cup is spread across three countries and a whole continent.
+              Some teams rack up thousands of extra miles — through <b>fierce heat</b>, <b>thin mountain air</b>,
+              on <b>short rest</b> — before a ball is kicked. Others barely move. We score every team's trip,
+              rank who got the roughest deal, then show the <b>fairer schedule FIFA could have played</b>.
             </p>
-            <button className="findbtn" onClick={()=>setPickerOpen(true)}>
-              <Search size={15}/> Find your team
-            </button>
+            <div className="hero-cta">
+              <button className="findbtn" onClick={()=>setPickerOpen(true)}>
+                <Search size={15}/> Find your team
+              </button>
+              <button className="hero-link" onClick={()=>openTeam(hardest.t)}>
+                or see the toughest draw <ChevronRight size={14}/>
+              </button>
+            </div>
           </div>
           <div className="hero-badge">
             <Trophy size={15}/> GROUP STAGE · JUN 11–27
           </div>
+        </div>
+
+        <div className="burdenstrip">
+          <span className="bs-l">A team's <Term def="The total toll of its group-stage trip — five things added into one score. Higher = a tougher, more tiring journey.">“burden”</Term> adds up five things:</span>
+          {METRICS.map((m)=>(
+            <span key={m.k} className="bs-chip">
+              <m.icon size={13} style={{color:m.col}}/> <Term def={m.tip}>{m.label}</Term>
+            </span>
+          ))}
+          <span className="bs-note">higher = a tougher trip</span>
         </div>
         <div className="prov">
           Groups, nations, base camps & all 72 fixtures <span className="ok">confirmed</span> · model
@@ -231,27 +250,30 @@ export default function WorldCup2026TravelBurdenLab(){
         </div>
       </header>
 
-      {/* ---------------- STAT CARDS ---------------- */}
-      <section className="stats">
-        <StatCard label="HARDEST DRAW" big={hardest.t} flag={hardest.f}
-          sub={`burden ${hardest.cmp.toFixed(1)}`} accent="var(--magenta)" onClick={()=>{setSel(hardest.t);setTab("map");}}/>
-        <StatCard label="EASIEST DRAW" big={easiest.t} flag={easiest.f}
-          sub={`burden ${easiest.cmp.toFixed(1)}`} accent="var(--green)" onClick={()=>{setSel(easiest.t);setTab("map");}}/>
-        <StatCard label="FAIRNESS GAP" big={gap.toFixed(1)} sub="max − min · lower = fairer" accent="var(--cyan)"/>
-        <StatCard label="GINI" big={gi.toFixed(3)} sub="0 = equal · lower = fairer" accent="var(--gold)"/>
-      </section>
-
-      {/* ---------------- VERDICT BANNER ("which team got screwed") ---------------- */}
+      {/* ---------------- VERDICT BANNER (the hook) ---------------- */}
       <button className="verdict" onClick={()=>openTeam(hardest.t)} title={`Open ${hardest.t}'s journey`}>
         <span className="verdict-tag">THE VERDICT</span>
         <span className="verdict-txt">
-          <b>{hardest.f} {hardest.t}</b> drew the most punishing schedule — burden <b>{hardest.cmp.toFixed(1)}</b> vs{" "}
-          <b>{easiest.f} {easiest.t}</b>'s {easiest.cmp.toFixed(1)}
-          {easiest.cmp>0.5 && <> ({(hardest.cmp/easiest.cmp).toFixed(1)}× more)</>}. Fairness gap <b>{gap.toFixed(1)}</b>
-          {mode==="fair" ? <> after optimizing for {OBJ_META[objective].label.toLowerCase()}.</> : <> — switch to <b>Optimized</b> to redraw it fairer.</>}
+          <b>{hardest.f} {hardest.t}</b> got the most punishing trip of all 48 teams
+          {ratio && <> — about <b>{ratio.toFixed(0)}× the travel grind</b> of <b>{easiest.f} {easiest.t}</b>, the comfiest draw</>}.
+          {mode==="fair"
+            ? <> Even after optimizing for {OBJ_META[objective].label.toLowerCase()}.</>
+            : <> Tap to see their journey — or flip to <b>Optimized</b> for a fairer World Cup.</>}
         </span>
         <ChevronRight size={18} className="verdict-arrow"/>
       </button>
+
+      {/* ---------------- STAT CARDS ---------------- */}
+      <section className="stats">
+        <StatCard label="HARDEST DRAW" big={hardest.t} flag={hardest.f}
+          sub={`roughest trip · burden ${hardest.cmp.toFixed(1)}`} accent="var(--magenta)" onClick={()=>openTeam(hardest.t)}/>
+        <StatCard label="EASIEST DRAW" big={easiest.t} flag={easiest.f}
+          sub={`comfiest trip · burden ${easiest.cmp.toFixed(1)}`} accent="var(--green)" onClick={()=>openTeam(easiest.t)}/>
+        {ratio
+          ? <StatCard label="HOW LOPSIDED" big={`${ratio.toFixed(1)}×`} sub="hardest vs easiest trip" accent="var(--cyan)"/>
+          : <StatCard label="FAIRNESS GAP" big={gap.toFixed(1)} sub="points, hardest − easiest" accent="var(--cyan)"/>}
+        <StatCard label="INEQUALITY" big={gi.toFixed(2)} sub="Gini · 0 = every team even" accent="var(--gold)"/>
+      </section>
 
       {/* ---------------- BODY: console + panel ---------------- */}
       <div className="body">
@@ -1251,10 +1273,22 @@ const CSS = `
 .verdict:hover .verdict-arrow{color:var(--magenta);transform:translateX(3px)}
 
 /* find-your-team CTA (hero) */
-.findbtn{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;
-  color:#fff;background:linear-gradient(96deg,var(--magenta),var(--violet));border:none;border-radius:999px;padding:9px 16px;cursor:pointer;
+.hero-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:16px}
+.findbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+  color:#fff;background:linear-gradient(96deg,var(--magenta),var(--violet));border:none;border-radius:999px;padding:10px 18px;cursor:pointer;
   box-shadow:0 4px 14px rgba(237,31,120,.28);transition:.15s}
 .findbtn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(237,31,120,.36)}
+.hero-link{display:inline-flex;align-items:center;gap:4px;background:none;border:none;cursor:pointer;
+  font-family:var(--mono);font-size:12px;color:var(--ink2);padding:4px 0;transition:.12s}
+.hero-link:hover{color:var(--magenta)}
+
+/* "what is burden" explainer strip (hero) */
+.burdenstrip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:18px;padding-top:15px;border-top:1px solid var(--line2)}
+.bs-l{font-size:13px;color:var(--ink2);margin-right:2px}
+.bs-chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--ink2);
+  background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:4px 11px}
+.bs-chip svg{flex:0 0 auto}
+.bs-note{font-family:var(--mono);font-size:11px;color:var(--mut)}
 
 /* presets + advanced disclosure (console) */
 .presets{margin-bottom:12px}
