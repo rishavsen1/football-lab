@@ -1,4 +1,4 @@
-/* Build-time social-preview (OG) images — the static-hosting solution for rich
+/* Build-time social-preview (OG) images: the static-hosting solution for rich
    link previews. For each team, compute its burden under default weights + the
    actual FIFA schedule, render the SAME share card used in-app (src/lib/shareCard
    .js), and rasterize to public/og/<slug>.png so `vite build` copies them to dist.
@@ -20,13 +20,13 @@ export const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/
 
 const FACTORS = [["jet","Jet-lag"],["travel","Travel"],["heat","Heat"],["alt","Altitude"],["cong","Congestion"]];
 function takeaway(row, n){
-  if(row.cmp < 0.05) return "Barely any travel burden — one of the lightest draws.";
+  if(row.cmp < 0.05) return "Barely any travel burden, one of the lightest draws.";
   const top = FACTORS.map(([k,l])=>({l,v:row.parts[k]})).sort((a,b)=>b.v-a.v)[0];
   const share = Math.round(100*top.v/(row.cmp/100 || 1));
   const third = Math.ceil(n/3);
   const ord = row.rank===1?"The hardest":row.rank===2?"2nd-hardest":row.rank===3?"3rd-hardest":`${row.rank}th-hardest`;
   const pos = row.rank<=third ? `${ord} draw of ${n}` : row.rank>n-third ? `One of the lighter draws (#${row.rank})` : `A mid-pack draw (#${row.rank} of ${n})`;
-  return `${pos} — ${top.l.toLowerCase()} is the biggest load (${share}%).`;
+  return `${pos}: ${top.l.toLowerCase()} is the biggest load (${share}%).`;
 }
 
 // compute burdens under default weights + the actual schedule, then rank

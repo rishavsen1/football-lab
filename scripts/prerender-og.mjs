@@ -19,7 +19,7 @@ const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<":"&lt;",">":"&gt;",
 let n = 0;
 for (const tm of TEAMS) {
   const s = slug(tm.t);
-  const title = `${tm.t} — WC2026 Travel Burden Lab`;
+  const title = `${tm.t}: WC2026 Travel Burden Lab`;
   const desc = `How punishing is ${tm.t}'s 2026 World Cup group-stage draw? Travel, heat, altitude, jet-lag and congestion, scored and audited for fairness.`;
   const img = abs(`${BASE}og/${s}.png`);
   const target = abs(`${BASE}#/wc2026?team=${encodeURIComponent(tm.t)}&open=1`);

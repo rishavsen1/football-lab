@@ -4,7 +4,7 @@ import { Trophy, ArrowRight, Github } from "lucide-react";
 import { TEAMS, BASES, ACTUAL_CITY, TEAM_MATCHES, FIXTURES, MILP_AUDIT } from "./data/wc2026.js";
 import { rawMetrics, scaled, composite, DEFAULT_H, DEFAULT_W, LEAD } from "./model/burden.js";
 
-// Headline numbers for the WC2026 card — computed from the model under default
+// Headline numbers for the WC2026 card, computed from the model under default
 // weights so the landing page stays truthful if the data ever changes.
 const hardest = TEAMS.map((tm) => {
   const ms = TEAM_MATCHES[tm.t];
@@ -68,13 +68,13 @@ export default function Hub() {
           <div className="xcard-title soon">More experiments</div>
           <p className="xcard-blurb">
             Knockout-stage burden, fixture congestion, and other football fairness
-            questions — slotting in here as they ship.
+            questions, slotting in here as they ship.
           </p>
         </div>
       </main>
 
       <footer className="hub-foot">
-        <span>A tunable, illustrative model — not calibrated to fatigue data. Method &amp; sources inside.</span>
+        <span>A tunable, illustrative model, not calibrated to fatigue data. Method &amp; sources inside.</span>
         <a href="https://github.com/rishavsen1/football-lab" target="_blank" rel="noreferrer">
           <Github size={13} /> source
         </a>

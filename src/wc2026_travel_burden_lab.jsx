@@ -26,7 +26,7 @@ const METRICS = [
   {k:"travel",label:"Travel",    icon:Plane,        col:"var(--cyan)",    tip:"Round-trip flight distance from base camp to each venue. Short rest before a match adds a surcharge."},
   {k:"heat", label:"Heat",       icon:Sun,          col:"var(--orange)",  tip:"How far each venue's June heat (a WBGT proxy) sits above a comfortable threshold."},
   {k:"alt",  label:"Altitude",   icon:Mountain,     col:"var(--green)",   tip:"Thin-air exposure at high venues, plus the elevation swing between camp and venue."},
-  {k:"cong", label:"Congestion", icon:CalendarClock,col:"var(--violet)",  tip:"Short turnarounds — matchdays closer together than the ideal rest gap."},
+  {k:"cong", label:"Congestion", icon:CalendarClock,col:"var(--violet)",  tip:"Short turnarounds: matchdays closer together than the ideal rest gap."},
 ];
 
 const CONFEDERATIONS = ["UEFA","CONMEBOL","CONCACAF","CAF","AFC","OFC"];
@@ -40,7 +40,7 @@ function ordHard(rank){
   return `${rank}th-hardest`;
 }
 function takeawayFor(row, n){
-  if(row.cmp < 0.05) return "Barely any travel burden under these settings — one of the lightest draws.";
+  if(row.cmp < 0.05) return "Barely any travel burden under these settings; one of the lightest draws.";
   const ranked = METRICS.map((m)=>({label:m.label, v:row.parts[m.k]})).sort((a,b)=>b.v-a.v);
   const top = ranked[0];
   const share = Math.round(100*top.v/(row.cmp/100 || 1));
@@ -48,10 +48,10 @@ function takeawayFor(row, n){
   const pos = row.rank<=third ? `${ordHard(row.rank)} draw of ${n}`
             : row.rank>n-third ? `one of the lighter draws (#${row.rank} of ${n})`
             : `a middle-of-the-pack draw (#${row.rank} of ${n})`;
-  return `${cap(pos)} — ${top.label.toLowerCase()} is the biggest load (${share}% of its burden).`;
+  return `${cap(pos)}: ${top.label.toLowerCase()} is the biggest load (${share}% of its burden).`;
 }
 
-// one-click tuning presets — hide the raw coefficient sliders behind "Advanced"
+// one-click tuning presets; hide the raw coefficient sliders behind "Advanced"
 const PRESETS = [
   {key:"fifa", label:"FIFA default", mode:"fifa", W:DEFAULT_W, desc:"The real draw, balanced model weights."},
   {key:"fair", label:"Fairness view", mode:"fair", objective:"balanced", W:DEFAULT_W, desc:"Redraw for a fairer schedule (gap + Gini)."},
@@ -165,7 +165,7 @@ export default function WorldCup2026TravelBurdenLab(){
     gap:    {label:"Gap",        base:fifaGap,  now:gap,  d:1, desc:"Shrinks the spread between the hardest and easiest draw (max − min)."},
     gini:   {label:"Gini",       base:fifaGini, now:gi,   d:3, desc:"Reduces relative inequality across all 48 teams (0 = perfectly equal)."},
     balanced:{label:"Balanced",  base:1, now:0.5*(gap/(fifaGap||1)+gi/(fifaGini||1)), d:2, desc:"Does both: shrinks the gap and Gini together (normalised, 1.00 = the actual draw)."},
-    total:  {label:"Total",      base:fifaTot,  now:curTot,d:0, desc:"Minimises total burden over every team — efficiency, not fairness."},
+    total:  {label:"Total",      base:fifaTot,  now:curTot,d:0, desc:"Minimises total burden over every team: efficiency, not fairness."},
   };
 
   // displayed order for the rankings list
@@ -200,7 +200,9 @@ export default function WorldCup2026TravelBurdenLab(){
 
   const selRow = sel ? rows.find((r)=>r.t===sel) : null;
   // intuitive "Nx tougher" framing for fans (guard against a near-zero easiest draw)
-  const ratio = easiest && easiest.cmp>0.5 ? hardest.cmp/easiest.cmp : null;
+  // always-defined "Nx tougher" framing; floor the denominator so a near-zero easiest
+  // draw (minimax / total push it to ~0) can't blow the ratio up to infinity
+  const ratio = easiest ? hardest.cmp/Math.max(easiest.cmp,0.5) : 0;
 
   // "watch it get fairer": FLIP-animate the ranking rows when their order changes
   const rankwrapRef = useRef(null);
@@ -225,8 +227,8 @@ export default function WorldCup2026TravelBurdenLab(){
             <h1 className="title">WHO GOT THE BRUTAL DRAW?</h1>
             <p className="sub">
               The first <b>48-team</b> World Cup is spread across three countries and a whole continent.
-              Some teams rack up thousands of extra miles — through <b>fierce heat</b>, <b>thin mountain air</b>,
-              on <b>short rest</b> — before a ball is kicked. Others barely move. We score every team's trip,
+              Some teams rack up thousands of extra miles (through <b>fierce heat</b>, <b>thin mountain air</b>,
+              on <b>short rest</b>) before a ball is kicked. Others barely move. We score every team's trip,
               rank who got the roughest deal, then show the <b>fairer schedule FIFA could have played</b>.
             </p>
             <div className="hero-cta">
@@ -247,7 +249,7 @@ export default function WorldCup2026TravelBurdenLab(){
         </div>
 
         <div className="burdenstrip">
-          <span className="bs-l">A team's <Term def="The total toll of its group-stage trip — five things added into one score. Higher = a tougher, more tiring journey.">“burden”</Term> adds up five things:</span>
+          <span className="bs-l">A team's <Term def="The total toll of its group-stage trip: five things added into one score. Higher = a tougher, more tiring journey.">“burden”</Term> adds up five things:</span>
           {METRICS.map((m)=>(
             <button key={m.k} className="bs-chip" onClick={()=>showFactor(m.k)} title={`${m.tip} (tap to learn more)`}>
               <m.icon size={13} style={{color:m.col}}/> {m.label}
@@ -262,7 +264,7 @@ export default function WorldCup2026TravelBurdenLab(){
             {copied ? <><Check size={12}/> copied</> : <><Link2 size={12}/> copy link</>}
           </button>
           <button className={"expertbtn"+(expert?" on":"")} onClick={()=>setExpert((e)=>!e)}
-            title="Tune the model yourself — fairness objectives, factor weights, the stability test and the math"
+            title="Tune the model yourself: fairness objectives, factor weights, the stability test and the math"
             aria-pressed={expert}>
             <FlaskConical size={13}/>
             {expert ? <>Expert mode <b>on</b></> : <>Expert mode<span className="expertbtn-hint">tune the model →</span></>}
@@ -283,10 +285,10 @@ export default function WorldCup2026TravelBurdenLab(){
         <span className="verdict-tag">THE VERDICT</span>
         <span className="verdict-txt">
           <b>{hardest.f} {hardest.t}</b> got the most punishing trip of all 48 teams
-          {ratio && <> — about <b><CountUp value={ratio} decimals={0} suffix="× the travel grind"/></b> of <b>{easiest.f} {easiest.t}</b>, the comfiest draw</>}.
+          {ratio ? <>, about <b><CountUp value={ratio} decimals={0} suffix="× the travel grind"/></b> of <b>{easiest.f} {easiest.t}</b>, the comfiest draw</> : null}.
           {mode==="fair"
             ? <> Even on the <b>fairer draw</b>{expert?` (${OBJ_META[objective].label.toLowerCase()})`:""}.</>
-            : <> Tap to see their journey — or flip to the <b>Fairer draw</b> below for a fairer World Cup.</>}
+            : <> Tap to see their journey, or flip to the <b>Fairer draw</b> below for a fairer World Cup.</>}
         </span>
         <ChevronRight size={18} className="verdict-arrow"/>
       </button>
@@ -297,10 +299,10 @@ export default function WorldCup2026TravelBurdenLab(){
           sub={`roughest trip · burden ${hardest.cmp.toFixed(1)}`} accent="var(--magenta)" onClick={()=>openTeam(hardest.t)}/>
         <StatCard label="EASIEST DRAW" big={easiest.t} flag={easiest.f}
           sub={`comfiest trip · burden ${easiest.cmp.toFixed(1)}`} accent="var(--green)" onClick={()=>openTeam(easiest.t)}/>
-        {ratio
-          ? <StatCard label="HOW LOPSIDED" big={<CountUp value={ratio} decimals={1} suffix="×"/>} sub="hardest vs easiest trip" accent="var(--cyan)"/>
-          : <StatCard label="FAIRNESS GAP" big={<CountUp value={gap} decimals={1}/>} sub="points, hardest − easiest" accent="var(--cyan)"/>}
-        <StatCard label="INEQUALITY" big={<CountUp value={gi} decimals={2}/>} sub="Gini · 0 = every team even" accent="var(--gold)"/>
+        <StatCard label="HOW LOPSIDED" big={<CountUp value={ratio} decimals={1} suffix="×"/>} sub="hardest vs easiest trip" accent="var(--cyan)"
+          tip="How many times tougher the hardest team's trip is than the easiest team's (hardest burden divided by easiest). Higher means a more lopsided, less fair draw."/>
+        <StatCard label="INEQUALITY" big={<CountUp value={gi} decimals={2}/>} sub="0 = every team even" accent="var(--gold)"
+          tip="The Gini coefficient across all 48 teams: 0 means every team has an identical trip, and higher values mean a more uneven spread. It's a standard way to measure inequality."/>
       </section>
 
       {/* ---------------- BODY: console + panel ---------------- */}
@@ -367,7 +369,7 @@ export default function WorldCup2026TravelBurdenLab(){
 
           <Group title="Arrival">
             <Slider label="Arrival lead (days before each team's first match)" v={lead} min={1} max={14} step={1}
-              onChange={setLead} fmt={(x)=>`${x} d`} hint="default buffer for all teams; override any single team in its detail panel"/>
+              onChange={setLead} tip="Days a team arrives before its first match. More lead time means more chance to shake off jet-lag before kickoff." fmt={(x)=>`${x} d`} hint="default buffer for all teams; override any single team in its detail panel"/>
           </Group>
 
           <button className="advtoggle" onClick={()=>setAdvanced(!advanced)} aria-expanded={advanced}>
@@ -377,35 +379,35 @@ export default function WorldCup2026TravelBurdenLab(){
 
           {advanced && (<>
           <Group title="Jet-lag">
-            <Slider label="Eastward jet-lag weight" v={H.aE} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,aE:x})}/>
-            <Slider label="Westward jet-lag weight" v={H.aW} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,aW:x})}/>
-            <Slider label="Recovery days per time-zone hour" v={H.kappa} min={0.25} max={3} step={0.05} onChange={(x)=>setH({...H,kappa:x})}/>
+            <Slider label="Eastward jet-lag weight" v={H.aE} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,aE:x})} tip="How much eastward time-zone travel hurts. Flying east (losing hours) is harder to recover from than west, so it sits above the westward weight."/>
+            <Slider label="Westward jet-lag weight" v={H.aW} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,aW:x})} tip="How much westward time-zone travel hurts. Gaining hours is easier on the body clock than losing them."/>
+            <Slider label="Recovery days per time-zone hour" v={H.kappa} min={0.25} max={3} step={0.05} onChange={(x)=>setH({...H,kappa:x})} tip="Days the body needs to adjust per hour of time-zone shift, roughly one day per zone. Arriving early eats into this."/>
           </Group>
 
           <Group title="Travel">
-            <Slider label="Last-minute travel surcharge" v={H.delta} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,delta:x})}/>
-            <Slider label="Surcharge decay (days)" v={H.tau} min={0.5} max={6} step={0.1} onChange={(x)=>setH({...H,tau:x})}/>
+            <Slider label="Last-minute travel surcharge" v={H.delta} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,delta:x})} tip="Extra penalty for flying to a match on short rest, added on top of the raw distance."/>
+            <Slider label="Surcharge decay (days)" v={H.tau} min={0.5} max={6} step={0.1} onChange={(x)=>setH({...H,tau:x})} tip="How quickly that short-rest travel penalty fades as the gap between matches grows."/>
           </Group>
 
           <Group title="Heat">
-            <Slider label="Comfortable heat threshold (°C)" v={H.thetaHeat} min={20} max={34} step={0.5} onChange={(x)=>setH({...H,thetaHeat:x})} fmt={(x)=>`${x}°`}/>
+            <Slider label="Comfortable heat threshold (°C)" v={H.thetaHeat} min={20} max={34} step={0.5} onChange={(x)=>setH({...H,thetaHeat:x})} tip="Heat only counts above this WBGT temperature. 28°C is where heat-stress risk climbs, the level FIFPRO flags for postponement." fmt={(x)=>`${x}°`}/>
           </Group>
 
           <Group title="Altitude">
-            <Slider label="Altitude threshold (m)" v={H.h0} min={0} max={2500} step={50} onChange={(x)=>setH({...H,h0:x})} fmt={(x)=>`${x}m`}/>
-            <Slider label="High-altitude exposure weight" v={H.bExp} min={0} max={3} step={0.05} onChange={(x)=>setH({...H,bExp:x})}/>
-            <Slider label="Altitude-change weight" v={H.bTrans} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,bTrans:x})}/>
+            <Slider label="Altitude threshold (m)" v={H.h0} min={0} max={2500} step={50} onChange={(x)=>setH({...H,h0:x})} tip="Thin-air strain only counts above this elevation. Aerobic performance starts dropping around 1500 m." fmt={(x)=>`${x}m`}/>
+            <Slider label="High-altitude exposure weight" v={H.bExp} min={0} max={3} step={0.05} onChange={(x)=>setH({...H,bExp:x})} tip="How much playing at altitude above the threshold matters."/>
+            <Slider label="Altitude-change weight" v={H.bTrans} min={0} max={2} step={0.05} onChange={(x)=>setH({...H,bTrans:x})} tip="How much the elevation swing between a team's base camp and each venue matters."/>
           </Group>
 
           <Group title="Congestion">
-            <Slider label="Ideal rest gap (days)" v={H.gMin} min={1} max={7} step={1} onChange={(x)=>setH({...H,gMin:x})} fmt={(x)=>`${x} d`}/>
+            <Slider label="Ideal rest gap (days)" v={H.gMin} min={1} max={7} step={1} onChange={(x)=>setH({...H,gMin:x})} tip="Matches closer together than this many days draw a congestion penalty. About 4 days (96 hours) is the recovery line." fmt={(x)=>`${x} d`}/>
           </Group>
           </>)}
 
           <Group title="Composite weights">
             {METRICS.map((m)=>(
               <Slider key={m.k} label={m.label} color={m.col} v={W[m.k]} min={0} max={1} step={0.01}
-                onChange={(x)=>setW({...W,[m.k]:x})} fmt={()=>`${(wN[m.k]*100).toFixed(0)}%`}/>
+                onChange={(x)=>setW({...W,[m.k]:x})} tip={m.tip} fmt={()=>`${(wN[m.k]*100).toFixed(0)}%`}/>
             ))}
           </Group>
 
@@ -498,7 +500,7 @@ export default function WorldCup2026TravelBurdenLab(){
                 </>) : (
                 <div className="sum-readout">
                   {mode==="fair"
-                    ? <>This is the <b>fairer draw</b> — the bars even out. Flip to <b>Actual draw</b> to see what FIFA really did.</>
+                    ? <>This is the <b>fairer draw</b>: the bars even out. Flip to <b>Actual draw</b> to see what FIFA really did.</>
                     : ratio
                       ? <>The hardest trip is <b>{ratio.toFixed(1)}×</b> the easiest. Flip to <b>Fairer draw</b> above to shrink that gap.</>
                       : <>Flip to <b>Fairer draw</b> above to see a more even schedule.</>}
@@ -552,19 +554,37 @@ export default function WorldCup2026TravelBurdenLab(){
 }
 
 /* ----------------------------- subcomponents ------------------------------- */
-function StatCard({label,big,flag,sub,accent,onClick}){
+function StatCard({label,big,flag,sub,accent,onClick,tip}){
+  const inner = (<>
+    <div className="stat-l">{label}{tip && <InfoTip text={tip}/>}</div>
+    <div className="stat-b" style={{color:accent}}>{flag&&<span style={{marginRight:6}}>{flag}</span>}{big}</div>
+    <div className="stat-s">{sub}</div>
+  </>);
+  return onClick
+    ? <button className="stat" onClick={onClick} style={{borderTopColor:accent,cursor:"pointer"}}>{inner}</button>
+    : <div className="stat" style={{borderTopColor:accent}}>{inner}</div>;
+}
+// small "i" info button with a tap/hover tooltip bubble (works on mobile, closes on outside click/Esc)
+function InfoTip({text}){
+  const [open,setOpen]=useState(false);
+  useEffect(()=>{
+    if(!open) return;
+    const close=()=>setOpen(false);
+    window.addEventListener("click",close); window.addEventListener("keydown",close);
+    return ()=>{ window.removeEventListener("click",close); window.removeEventListener("keydown",close); };
+  },[open]);
   return (
-    <button className="stat" onClick={onClick} style={{borderTopColor:accent,cursor:onClick?"pointer":"default"}}>
-      <div className="stat-l">{label}</div>
-      <div className="stat-b" style={{color:accent}}>{flag&&<span style={{marginRight:6}}>{flag}</span>}{big}</div>
-      <div className="stat-s">{sub}</div>
-    </button>
+    <span className="infotip">
+      <button type="button" className="infotip-btn" aria-label="What does this mean?" title={text}
+        onClick={(e)=>{ e.stopPropagation(); e.preventDefault(); setOpen((o)=>!o); }}>i</button>
+      {open && <span className="infotip-pop" role="tooltip" onClick={(e)=>e.stopPropagation()}>{text}</span>}
+    </span>
   );
 }
 function Group({title,children}){
   return (<div className="grp"><div className="grp-t">{title}</div>{children}</div>);
 }
-// inline jargon tooltip (hover / focus) — dotted underline, native title for a11y
+// inline jargon tooltip (hover / focus): dotted underline, native title for a11y
 function Term({children, def}){
   return <abbr className="term" title={def} tabIndex={0}>{children}</abbr>;
 }
@@ -604,12 +624,12 @@ function TeamPicker({onPick,onClose}){
     </div>
   );
 }
-function Slider({label,v,min,max,step,onChange,fmt,color,hint}){
+function Slider({label,v,min,max,step,onChange,fmt,color,hint,tip}){
   const pct = ((v-min)/(max-min))*100;
   return (
     <label className="sl">
       <div className="sl-top">
-        <span>{color&&<i className="dot" style={{background:color}}/>}{label}</span>
+        <span>{color&&<i className="dot" style={{background:color}}/>}{label}{tip && <InfoTip text={tip}/>}</span>
         <b>{fmt?fmt(v):(+v).toFixed(2)}</b>
       </div>
       <input type="range" min={min} max={max} step={step} value={v}
@@ -685,7 +705,7 @@ function HowItWorks(){
           <div className="prov-r"><span className="pv-badge ok"><ShieldCheck size={11}/> confirmed</span>
             All 72 group-stage fixtures (teams, venue, date), the 12 groups, home nations, announced base camps, and host-city geography (lat/lon, elevation, June UTC offset).</div>
           <div className="prov-r"><span className="pv-badge est"><Search size={11}/> estimated</span>
-            FIFA world ranking — top-20 + Canada are published; teams below ~20 are approximate (used only for the FIFA-rank sort, never in the burden score).</div>
+            FIFA world ranking: top-20 + Canada are published; teams below ~20 are approximate (used only for the FIFA-rank sort, never in the burden score).</div>
           <div className="prov-r"><span className="pv-badge proxy"><AlertTriangle size={11}/> proxy</span>
             Heat is a hand-set seasonal WBGT estimate per city. It ignores kickoff time, humidity, and closed-roof / air-conditioned stadiums. Model coefficients and reference scales are reasoned defaults, not fitted.</div>
         </div>
@@ -694,8 +714,8 @@ function HowItWorks(){
       <div className="caveat-block">
         <div className="how-comp-t"><AlertTriangle size={14}/> What this does <u>not</u> claim</div>
         <ul className="caveat-list">
-          <li>It's an <b>illustrative, tunable model</b> — not calibrated against real fatigue or performance data. "FIFA is unfair by X" is relative to <i>this</i> model and your weights.</li>
-          <li>The optimizer holds <b>base camps and match dates fixed</b>, so it can only move travel/heat/altitude — never jet-lag or congestion.</li>
+          <li>It's an <b>illustrative, tunable model</b>, not calibrated against real fatigue or performance data. "FIFA is unfair by X" is relative to <i>this</i> model and your weights.</li>
+          <li>The optimizer holds <b>base camps and match dates fixed</b>, so it can only move travel/heat/altitude, never jet-lag or congestion.</li>
           <li>Its constraints are <b>looser than FIFA's real ones</b> (no stadium capacity, broadcast windows, or regional clustering), so the fairness gains are an upper bound, not an operational schedule.</li>
           <li>Only <b>minimax at default weights</b> is certified optimal (matches the exact CBC solver); the other objectives are near-optimal heuristics.</li>
         </ul>
@@ -975,7 +995,7 @@ function JourneyMap({row,onPick,onDetails,rows,embedded}){
               {stacked && <circle cx={x} cy={y} r={isB&&isV?12:9} fill="none" stroke="var(--magenta)" strokeWidth="2"/>}
               {isB && isV && <circle cx={x} cy={y} r="9" fill="none" stroke="var(--gold)" strokeWidth="2"/>}
               <circle cx={x} cy={y} r="5.6" fill={fill} stroke="#fff" strokeWidth="1.4" style={{cursor:"help"}}>
-                <title>{`${r0.c.n}${roleTags.length?` — ${roleTags.join(", ")}`:""}${isV?` — matches ${matchStr}`:""}${r0.c.wb!=null?` — ~${r0.c.wb}°C WBGT`:""}${r0.c.el!=null?`${r0.c.wb!=null?",":" —"} ${r0.c.el} m`:""}`}</title>
+                <title>{`${r0.c.n}${roleTags.length?` · ${roleTags.join(", ")}`:""}${isV?` · matches ${matchStr}`:""}${r0.c.wb!=null?` · ~${r0.c.wb}°C WBGT`:""}${r0.c.el!=null?`${r0.c.wb!=null?",":" ·"} ${r0.c.el} m`:""}`}</title>
               </circle>
               <text x={lx} y={y+3} className="map-city strong">{cityLabel}</text>
               {roleTags.length>0 && <text x={lx} y={y+13.5} className="map-tags">{roleTags.join(" · ")}</text>}
@@ -1025,7 +1045,7 @@ function Sensitivity({H, wN, lead, leadOv, baseOv, rows}){
   return (
     <div className="sens">
       <div className="sens-intro">
-        <b>How stable is this ranking?</b> We re-ran the model <b>{M}×</b>, each time randomly nudging every weight by up to ±50% and renormalising. Each bar is the range of finishing positions a team landed in — a short bar means the verdict barely depends on your weight choices.
+        <b>How stable is this ranking?</b> We re-ran the model <b>{M}×</b>, each time randomly nudging every weight by up to ±50% and renormalising. Each bar is the range of finishing positions a team landed in. A short bar means the verdict barely depends on your weight choices.
       </div>
       <div className="sens-call">
         {hardest.f} <b>{hardest.t}</b> sits among the 5 hardest draws in <b>{Math.round((data[hardest.t]?.top5||0)*100)}%</b> of reweightings.
@@ -1166,7 +1186,7 @@ function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,ro
 
           {/* rivals */}
           <div className="rivalbox">
-            <div className="dsec-t">Group {row.g} rivals — burden edge</div>
+            <div className="dsec-t">Group {row.g} rivals: burden edge</div>
             <div className="rivals">
               {rivals.sort((a,b)=>b.cmp-a.cmp).map((rv)=>{
                 const edge=rv.cmp-row.cmp; const fav=edge>0;
@@ -1395,6 +1415,15 @@ const CSS = `
 /* jargon tooltip + drawer takeaway */
 .term{text-decoration:underline dotted;text-underline-offset:2px;cursor:help;color:inherit}
 .term:focus{outline:2px solid var(--cyan);outline-offset:1px;border-radius:2px}
+/* "i" info button + tooltip bubble */
+.infotip{position:relative;display:inline-flex;vertical-align:middle;margin-left:5px}
+.infotip-btn{width:14px;height:14px;flex:0 0 auto;border-radius:50%;border:1px solid var(--line);background:var(--card2);color:var(--mut);
+  font-family:Georgia,serif;font-style:italic;font-weight:700;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:.12s}
+.infotip-btn:hover{border-color:var(--cyan);color:var(--cyan)}
+.infotip-pop{position:absolute;z-index:50;top:150%;left:50%;transform:translateX(-50%);width:max-content;max-width:230px;
+  background:var(--ink);color:#fff;font-family:var(--body);font-weight:400;font-size:11.5px;line-height:1.45;letter-spacing:normal;text-transform:none;text-align:left;
+  padding:8px 11px;border-radius:9px;box-shadow:0 8px 24px rgba(22,25,28,.28)}
+.infotip-pop::before{content:"";position:absolute;bottom:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-bottom-color:var(--ink)}
 .dtakeaway{margin:2px 0 14px;font-size:13.5px;line-height:1.45;color:var(--ink2);border-left:3px solid var(--cyan);padding:7px 0 7px 11px;background:rgba(10,165,149,.05);border-radius:0 8px 8px 0}
 
 /* find-your-team picker overlay */
