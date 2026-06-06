@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   Plane, Sun, Mountain, Clock, CalendarClock, Trophy, RotateCcw,
   SlidersHorizontal, Map as MapIcon, BarChart3, BookOpen, X, Scale, Zap, Sigma, Link2, Check,
-  Search, ChevronDown, ChevronRight, Activity, Download, ShieldCheck, AlertTriangle
+  Search, ChevronDown, ChevronRight, Activity, Download, ShieldCheck, AlertTriangle, FlaskConical
 } from "lucide-react";
 
 import {
@@ -261,9 +261,11 @@ export default function WorldCup2026TravelBurdenLab(){
           <button className="copylink" onClick={copyLink} title="Copy a link to this exact view">
             {copied ? <><Check size={12}/> copied</> : <><Link2 size={12}/> copy link</>}
           </button>
-          <button className={"copylink expertbtn"+(expert?" on":"")} onClick={()=>setExpert((e)=>!e)}
-            title="Show the full model controls: objectives, weights, coefficients, Stability & Formulae" aria-pressed={expert}>
-            <SlidersHorizontal size={12}/> {expert?"Expert: on":"Expert mode"}
+          <button className={"expertbtn"+(expert?" on":"")} onClick={()=>setExpert((e)=>!e)}
+            title="Tune the model yourself — fairness objectives, factor weights, the stability test and the math"
+            aria-pressed={expert}>
+            <FlaskConical size={13}/>
+            {expert ? <>Expert mode <b>on</b></> : <>Expert mode<span className="expertbtn-hint">tune the model →</span></>}
           </button>
           <label className="fontsel">
             <span>Aa</span>
@@ -1250,9 +1252,21 @@ const CSS = `
 .prov .warn{color:var(--gold);border:1px solid rgba(217,135,18,.4);background:rgba(217,135,18,.07);padding:2px 7px;border-radius:6px}
 .copylink{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--cyan);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer;transition:.12s}
 .copylink:hover{border-color:var(--cyan);background:rgba(10,165,149,.07)}
-.expertbtn{color:var(--violet)}
-.expertbtn:hover{border-color:var(--violet);background:rgba(106,92,240,.08)}
-.expertbtn.on{background:var(--violet);border-color:var(--violet);color:#fff}
+/* Expert-mode toggle: a prominent, inviting pill (stands apart from the utility links) */
+.expertbtn{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;
+  color:#fff;background:linear-gradient(96deg,var(--violet),#8b5cf6);border:none;border-radius:999px;padding:6px 14px;cursor:pointer;
+  box-shadow:0 3px 12px rgba(106,92,240,.34);transition:.16s;position:relative}
+.expertbtn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(106,92,240,.5)}
+.expertbtn b{font-weight:700}
+.expertbtn-hint{margin-left:5px;padding-left:7px;border-left:1px solid rgba(255,255,255,.4);opacity:.92;font-size:10px}
+/* gentle attention pulse while off (disabled under prefers-reduced-motion via the global guard) */
+.expertbtn:not(.on){animation:expertpulse 2.6s ease-in-out infinite}
+@keyframes expertpulse{
+  0%,100%{box-shadow:0 3px 12px rgba(106,92,240,.34)}
+  50%{box-shadow:0 4px 20px rgba(106,92,240,.62),0 0 0 4px rgba(106,92,240,.12)}
+}
+.expertbtn.on{background:var(--ink);box-shadow:none}
+.expertbtn.on:hover{box-shadow:0 3px 10px rgba(22,25,28,.25)}
 /* fan-mode single-column body (console hidden) */
 .body.solo{grid-template-columns:1fr}
 /* always-visible Actual↔Fairer schedule switch (panel header) */
