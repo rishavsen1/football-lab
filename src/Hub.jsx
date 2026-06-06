@@ -95,8 +95,7 @@ const HUB_CSS = `
 }
 .hub-hero{position:relative;max-width:1080px;margin:0 auto 40px}
 .hub-kicker{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--cyan);margin-bottom:12px}
-.hub-title{font-family:var(--disp);font-size:clamp(44px,9vw,96px);line-height:.9;letter-spacing:.01em;margin:0;
-  background:linear-gradient(96deg,var(--magenta),var(--violet) 42%,var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hub-title{font-family:var(--disp);font-size:clamp(44px,9vw,96px);line-height:.9;letter-spacing:.01em;margin:0;color:var(--ink)}
 .hub-sub{font-size:clamp(15px,2.2vw,19px);color:var(--ink2);max-width:560px;margin:16px 0 0;line-height:1.5}
 .hub-grid{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
 .xcard{display:block;text-decoration:none;color:inherit;background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--magenta);

@@ -1261,8 +1261,7 @@ const CSS = `
 .hero-glow{position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent,transparent 40px,rgba(22,25,28,.02) 40px,rgba(22,25,28,.02) 80px);pointer-events:none}
 .hero-row{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;position:relative}
 .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--cyan);margin-bottom:8px}
-.title{font-family:var(--disp);font-size:clamp(38px,6vw,66px);line-height:.92;letter-spacing:.01em;margin:0;
-  background:linear-gradient(95deg,var(--magenta) 8%,var(--violet) 52%,var(--cyan) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.title{font-family:var(--disp);font-size:clamp(38px,6vw,66px);line-height:.92;letter-spacing:.01em;margin:0;color:var(--ink)}
 .sub{max-width:640px;margin:12px 0 0;color:var(--ink2);font-size:14.5px;line-height:1.5}
 .sub b{color:var(--ink)}
 .hero-badge{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--gold);
@@ -1376,9 +1375,9 @@ const CSS = `
 /* find-your-team CTA (hero) */
 .hero-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:16px}
 .findbtn{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;
-  color:#fff;background:linear-gradient(96deg,var(--magenta),var(--violet));border:none;border-radius:999px;padding:10px 18px;cursor:pointer;
-  box-shadow:0 4px 14px rgba(237,31,120,.28);transition:.15s}
-.findbtn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(237,31,120,.36)}
+  color:#fff;background:var(--cyan);border:none;border-radius:999px;padding:10px 18px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(10,165,149,.26);transition:.15s}
+.findbtn:hover{transform:translateY(-1px);background:#0b8f81;box-shadow:0 6px 18px rgba(10,165,149,.38)}
 .hero-link{display:inline-flex;align-items:center;gap:4px;background:none;border:none;cursor:pointer;
   font-family:var(--mono);font-size:12px;color:var(--ink2);padding:4px 0;transition:.12s}
 .hero-link:hover{color:var(--magenta)}
