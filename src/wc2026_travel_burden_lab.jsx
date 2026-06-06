@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useLayoutEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Plane, Sun, Mountain, Clock, CalendarClock, Trophy, RotateCcw,
@@ -17,6 +17,8 @@ import {
 } from "./model/burden.js";
 import { encodeState, decodeState } from "./lib/urlState.js";
 import { buildCardSVG, downloadCardPNG } from "./lib/shareCard.js";
+import { flipRows } from "./lib/flip.js";
+import { CountUp } from "./lib/useCountUp.js";
 
 // factor metadata (icon + color + plain-language tooltip) for bars / radar / legend
 const METRICS = [
@@ -78,6 +80,8 @@ export default function WorldCup2026TravelBurdenLab(){
   const [sel, setSel] = useState(I.sel ?? null);
   const [drawerOpen, setDrawerOpen] = useState(I.drawerOpen ?? false);
   const openTeam = (name)=>{ setSel(name); setDrawerOpen(true); };
+  // hero chip tap → jump to that factor's plain-language explainer
+  const showFactor = (k)=>{ setTab("how"); setTimeout(()=>{ const el=document.getElementById("factor-"+k); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },90); };
   const [baseOv, setBaseOv] = useState(I.baseOv ?? {});
   const [leadOv, setLeadOv] = useState(I.leadOv ?? {});
   const [advanced, setAdvanced] = useState(false);   // raw coefficient sliders hidden by default
@@ -85,6 +89,9 @@ export default function WorldCup2026TravelBurdenLab(){
   const [conf, setConf] = useState("all");            // confederation filter in rankings
   // console starts collapsed on small screens so mobile users reach the rankings first
   const [consoleOpen, setConsoleOpen] = useState(()=> !(typeof window!=="undefined" && window.matchMedia && window.matchMedia("(max-width:900px)").matches));
+  const [expert, setExpert] = useState(I.expert ?? false); // analyst console + Stability/Formulae tabs
+  // fan-facing Actual↔Fairer toggle: "Fairer" uses the Balanced objective unless an expert picked another
+  const setFairer = (on)=>{ setMode(on?"fair":"fifa"); if(on && !expert) setObjective("balanced"); };
 
   const applyPreset = (p)=>{ setW(p.W); setH(DEFAULT_H); setMode(p.mode); if(p.objective) setObjective(p.objective); };
   const presetActive = (p)=> mode===p.mode && JSON.stringify(W)===JSON.stringify(p.W)
@@ -92,8 +99,11 @@ export default function WorldCup2026TravelBurdenLab(){
 
   // mirror current state into the query string (replace, so back-button isn't spammed)
   useEffect(()=>{
-    setSearchParams(encodeState({mode,objective,tab,sortMode,lead,H,W,baseOv,leadOv,sel,drawerOpen}), {replace:true});
-  },[mode,objective,tab,sortMode,lead,H,W,baseOv,leadOv,sel,drawerOpen,setSearchParams]);
+    setSearchParams(encodeState({mode,objective,tab,sortMode,lead,H,W,baseOv,leadOv,sel,drawerOpen,expert}), {replace:true});
+  },[mode,objective,tab,sortMode,lead,H,W,baseOv,leadOv,sel,drawerOpen,expert,setSearchParams]);
+
+  // leaving Expert while on an expert-only tab → fall back to Rankings
+  useEffect(()=>{ if(!expert && (tab==="sens"||tab==="math")) setTab("rank"); },[expert,tab]);
 
   // copy a deep link to the current view (URL already reflects state via the effect)
   const [copied, setCopied] = useState(false);
@@ -170,7 +180,7 @@ export default function WorldCup2026TravelBurdenLab(){
     return {g, gr, gap:Math.max(...vs)-Math.min(...vs)};
   }),[rows]);
   const barFor = (r) => (
-    <button key={r.t} className={"barrow"+(sel===r.t?" selrow":"")} onClick={()=>openTeam(r.t)}
+    <button key={r.t} data-flip={r.t} className={"barrow"+(sel===r.t?" selrow":"")} onClick={()=>openTeam(r.t)}
       aria-label={`${r.t}, group ${r.g}, rank ${r.rank} of ${rows.length}, burden ${r.cmp.toFixed(1)}. Open itinerary.`}>
       <span className="rk">{r.rank}</span>
       <span className="fl">{r.f}</span>
@@ -179,7 +189,8 @@ export default function WorldCup2026TravelBurdenLab(){
         <span className="fill" style={{width:`${(r.cmp/maxC)*100}%`}}>
           {METRICS.map((m)=>{
             const frac = r.parts[m.k]/(r.cmp/100||1);
-            return <i key={m.k} style={{width:`${frac*100}%`,background:m.col}}/>;
+            return <i key={m.k} className="barseg" style={{width:`${frac*100}%`,background:m.col}}
+              title={`${m.label} · ${Math.round(frac*100)}% of burden`}/>;
           })}
         </span>
       </span>
@@ -190,6 +201,14 @@ export default function WorldCup2026TravelBurdenLab(){
   const selRow = sel ? rows.find((r)=>r.t===sel) : null;
   // intuitive "Nx tougher" framing for fans (guard against a near-zero easiest draw)
   const ratio = easiest && easiest.cmp>0.5 ? hardest.cmp/easiest.cmp : null;
+
+  // "watch it get fairer": FLIP-animate the ranking rows when their order changes
+  const rankwrapRef = useRef(null);
+  const flipStore = useRef(new Map());
+  useLayoutEffect(()=>{
+    if(tab!=="rank"){ flipStore.current.clear(); return; }
+    flipRows(rankwrapRef.current, flipStore.current);
+  },[mode,sortMode,conf,optCity,rows,tab]);
 
   const reset = ()=>{ setH(DEFAULT_H); setW(DEFAULT_W); setLead(LEAD); setBaseOv({}); setLeadOv({}); setMode("fifa"); };
 
@@ -217,6 +236,9 @@ export default function WorldCup2026TravelBurdenLab(){
               <button className="hero-link" onClick={()=>openTeam(hardest.t)}>
                 or see the toughest draw <ChevronRight size={14}/>
               </button>
+              <button className="hero-link" onClick={()=>openTeam(TEAMS[Math.floor(Math.random()*TEAMS.length)].t)} title="Open a random team">
+                🎲 Surprise me
+              </button>
             </div>
           </div>
           <div className="hero-badge">
@@ -227,9 +249,9 @@ export default function WorldCup2026TravelBurdenLab(){
         <div className="burdenstrip">
           <span className="bs-l">A team's <Term def="The total toll of its group-stage trip — five things added into one score. Higher = a tougher, more tiring journey.">“burden”</Term> adds up five things:</span>
           {METRICS.map((m)=>(
-            <span key={m.k} className="bs-chip">
-              <m.icon size={13} style={{color:m.col}}/> <Term def={m.tip}>{m.label}</Term>
-            </span>
+            <button key={m.k} className="bs-chip" onClick={()=>showFactor(m.k)} title={`${m.tip} (tap to learn more)`}>
+              <m.icon size={13} style={{color:m.col}}/> {m.label}
+            </button>
           ))}
           <span className="bs-note">higher = a tougher trip</span>
         </div>
@@ -238,6 +260,10 @@ export default function WorldCup2026TravelBurdenLab(){
           weights & coefficients <span className="warn">tunable</span>
           <button className="copylink" onClick={copyLink} title="Copy a link to this exact view">
             {copied ? <><Check size={12}/> copied</> : <><Link2 size={12}/> copy link</>}
+          </button>
+          <button className={"copylink expertbtn"+(expert?" on":"")} onClick={()=>setExpert((e)=>!e)}
+            title="Show the full model controls: objectives, weights, coefficients, Stability & Formulae" aria-pressed={expert}>
+            <SlidersHorizontal size={12}/> {expert?"Expert: on":"Expert mode"}
           </button>
           <label className="fontsel">
             <span>Aa</span>
@@ -255,10 +281,10 @@ export default function WorldCup2026TravelBurdenLab(){
         <span className="verdict-tag">THE VERDICT</span>
         <span className="verdict-txt">
           <b>{hardest.f} {hardest.t}</b> got the most punishing trip of all 48 teams
-          {ratio && <> — about <b>{ratio.toFixed(0)}× the travel grind</b> of <b>{easiest.f} {easiest.t}</b>, the comfiest draw</>}.
+          {ratio && <> — about <b><CountUp value={ratio} decimals={0} suffix="× the travel grind"/></b> of <b>{easiest.f} {easiest.t}</b>, the comfiest draw</>}.
           {mode==="fair"
-            ? <> Even after optimizing for {OBJ_META[objective].label.toLowerCase()}.</>
-            : <> Tap to see their journey — or flip to <b>Optimized</b> for a fairer World Cup.</>}
+            ? <> Even on the <b>fairer draw</b>{expert?` (${OBJ_META[objective].label.toLowerCase()})`:""}.</>
+            : <> Tap to see their journey — or flip to the <b>Fairer draw</b> below for a fairer World Cup.</>}
         </span>
         <ChevronRight size={18} className="verdict-arrow"/>
       </button>
@@ -270,15 +296,15 @@ export default function WorldCup2026TravelBurdenLab(){
         <StatCard label="EASIEST DRAW" big={easiest.t} flag={easiest.f}
           sub={`comfiest trip · burden ${easiest.cmp.toFixed(1)}`} accent="var(--green)" onClick={()=>openTeam(easiest.t)}/>
         {ratio
-          ? <StatCard label="HOW LOPSIDED" big={`${ratio.toFixed(1)}×`} sub="hardest vs easiest trip" accent="var(--cyan)"/>
-          : <StatCard label="FAIRNESS GAP" big={gap.toFixed(1)} sub="points, hardest − easiest" accent="var(--cyan)"/>}
-        <StatCard label="INEQUALITY" big={gi.toFixed(2)} sub="Gini · 0 = every team even" accent="var(--gold)"/>
+          ? <StatCard label="HOW LOPSIDED" big={<CountUp value={ratio} decimals={1} suffix="×"/>} sub="hardest vs easiest trip" accent="var(--cyan)"/>
+          : <StatCard label="FAIRNESS GAP" big={<CountUp value={gap} decimals={1}/>} sub="points, hardest − easiest" accent="var(--cyan)"/>}
+        <StatCard label="INEQUALITY" big={<CountUp value={gi} decimals={2}/>} sub="Gini · 0 = every team even" accent="var(--gold)"/>
       </section>
 
       {/* ---------------- BODY: console + panel ---------------- */}
-      <div className="body">
-        {/* CONSOLE */}
-        <aside className={"console"+(consoleOpen?"":" collapsed")}>
+      <div className={"body"+(expert?"":" solo")}>
+        {/* CONSOLE (expert mode only) */}
+        {expert && (<aside className={"console"+(consoleOpen?"":" collapsed")}>
           <button className="console-mtoggle" onClick={()=>setConsoleOpen((o)=>!o)} aria-expanded={consoleOpen}>
             <SlidersHorizontal size={14}/> {consoleOpen?"Hide":"Show"} tuning console
           </button>
@@ -297,7 +323,7 @@ export default function WorldCup2026TravelBurdenLab(){
             <div className="modebox-t"><Scale size={13}/> Venue assignment</div>
             <div className="seg">
               <button className={mode==="fifa"?"on":""} onClick={()=>setMode("fifa")}>Actual (FIFA)</button>
-              <button className={mode==="fair"?"on":""} onClick={()=>setMode("fair")}>Optimized</button>
+              <button className={mode==="fair"?"on":""} onClick={()=>setMode("fair")}>Fairer draw</button>
             </div>
             {mode==="fair" ? (
               <>
@@ -382,20 +408,34 @@ export default function WorldCup2026TravelBurdenLab(){
           </Group>
 
           <button className="reset" onClick={reset}><RotateCcw size={13}/> Reset to defaults</button>
-        </aside>
+        </aside>)}
 
         {/* PANEL */}
         <main className="panel">
+          {/* always-visible fan control: the real FIFA draw vs a fairer redraw */}
+          <div className="fairswitch">
+            <Scale size={14}/>
+            <span className="fairswitch-l">Schedule</span>
+            <div className="seg fairseg">
+              <button className={mode==="fifa"?"on":""} onClick={()=>setFairer(false)}>Actual draw</button>
+              <button className={mode==="fair"?"on":""} onClick={()=>setFairer(true)}>Fairer draw</button>
+            </div>
+            <span className="fairswitch-note">
+              {mode==="fair"
+                ? <>a fairer draw FIFA could've played{expert?` · ${OBJ_META[objective].label.toLowerCase()}`:""}</>
+                : <>the real FIFA schedule</>}
+            </span>
+          </div>
           <nav className="tabs">
             <Tab id="rank" cur={tab} set={setTab} icon={BarChart3}>Rankings</Tab>
             <Tab id="map"  cur={tab} set={setTab} icon={MapIcon}>Journey map</Tab>
-            <Tab id="sens" cur={tab} set={setTab} icon={Activity}>Stability</Tab>
+            {expert && <Tab id="sens" cur={tab} set={setTab} icon={Activity}>Stability</Tab>}
             <Tab id="how"  cur={tab} set={setTab} icon={BookOpen}>How it works</Tab>
-            <Tab id="math" cur={tab} set={setTab} icon={Sigma}>Formulae</Tab>
+            {expert && <Tab id="math" cur={tab} set={setTab} icon={Sigma}>Formulae</Tab>}
           </nav>
 
           {tab==="rank" && (
-            <div className="rankwrap">
+            <div className="rankwrap" ref={rankwrapRef}>
               <div className="legend">
                 {METRICS.map((m)=>(
                   <span key={m.k} className="lg"><i style={{background:m.col}}/><Term def={m.tip}>{m.label}</Term></span>
@@ -440,6 +480,7 @@ export default function WorldCup2026TravelBurdenLab(){
                     : <div className="emptybars">No teams from {conf} in this view.</div>; })()
               )}
               <div className="sumrow">
+                {expert ? (<>
                 <div className="sum-cell"><span>total</span><b>{curTot.toFixed(1)}</b></div>
                 <div className="sum-cell">
                   <span>mean</span><b>{mean.toFixed(1)}</b>
@@ -452,6 +493,15 @@ export default function WorldCup2026TravelBurdenLab(){
                     <option value="range">min–max</option>
                   </select>
                 </div>
+                </>) : (
+                <div className="sum-readout">
+                  {mode==="fair"
+                    ? <>This is the <b>fairer draw</b> — the bars even out. Flip to <b>Actual draw</b> to see what FIFA really did.</>
+                    : ratio
+                      ? <>The hardest trip is <b>{ratio.toFixed(1)}×</b> the easiest. Flip to <b>Fairer draw</b> above to shrink that gap.</>
+                      : <>Flip to <b>Fairer draw</b> above to see a more even schedule.</>}
+                </div>
+                )}
                 <div className="sum-export">
                   <button className="expbtn" title="Download this ranking as CSV"
                     onClick={()=>download(`wc2026-burden-${mode}.csv`,
@@ -489,7 +539,7 @@ export default function WorldCup2026TravelBurdenLab(){
       {pickerOpen && <TeamPicker onPick={openTeam} onClose={()=>setPickerOpen(false)}/>}
 
       {/* ---------------- DETAIL DRAWER ---------------- */}
-      {selRow && drawerOpen && <Detail row={selRow} onClose={()=>setDrawerOpen(false)} onShowMap={(name)=>{setSel(name);setTab("map");setDrawerOpen(false);}} baseOv={baseOv} setBaseOv={setBaseOv} leadOv={leadOv} setLeadOv={setLeadOv} lead={lead} rows={rows} copyLink={copyLink} copied={copied} mode={mode} objective={objective}/>}
+      {selRow && drawerOpen && <Detail row={selRow} onClose={()=>setDrawerOpen(false)} onShowMap={(name)=>{setSel(name);setTab("map");setDrawerOpen(false);}} baseOv={baseOv} setBaseOv={setBaseOv} leadOv={leadOv} setLeadOv={setLeadOv} lead={lead} rows={rows} copyLink={copyLink} copied={copied} mode={mode} objective={objective} onOpenTeam={openTeam}/>}
 
       <footer className="foot">
         Built for exploration · five-factor fatigue model over the confirmed WC2026 group draw ·
@@ -587,23 +637,23 @@ function HowItWorks(){
         <b> Formulae</b> tab.
       </p>
 
-      <Factor icon={Clock} col="var(--magenta)" name="Jet-lag">
+      <Factor id="factor-jet" icon={Clock} col="var(--magenta)" name="Jet-lag">
         The time-zone gap between home and the base camp, weighted more heavily for eastward shifts
         than westward ones. Arriving early softens it: more days to adjust before the first match
         means less of a hit.
       </Factor>
 
-      <Factor icon={Plane} col="var(--cyan)" name="Travel">
+      <Factor id="factor-travel" icon={Plane} col="var(--cyan)" name="Travel">
         Total round-trip flying distance from base camp out to each venue. A long trip right before
         kick-off counts for more than the same trip with plenty of rest beforehand.
       </Factor>
 
-      <Factor icon={Sun} col="var(--orange)" name="Heat">
+      <Factor id="factor-heat" icon={Sun} col="var(--orange)" name="Heat">
         How far each venue's expected June heat sits above a comfort threshold. Houston, Monterrey and
         Miami punish; Vancouver, Seattle and altitude-cooled Mexico City barely register.
       </Factor>
 
-      <Factor icon={Mountain} col="var(--green)" name="Altitude">
+      <Factor id="factor-alt" icon={Mountain} col="var(--green)" name="Altitude">
         Two strains added together: <b>thin air</b> (how far each venue sits above ~1500 m) and the
         <b> swing</b> of every hop between your base camp's elevation and the venue's, so even a sea-level
         match costs if your camp is high. Example: a camp in Guadalajara (1566 m) plus a match up in
@@ -611,7 +661,7 @@ function HowItWorks(){
         big elevation swings, even though only one venue is genuinely high.
       </Factor>
 
-      <Factor icon={CalendarClock} col="var(--violet)" name="Congestion">
+      <Factor id="factor-cong" icon={CalendarClock} col="var(--violet)" name="Congestion">
         A penalty whenever the rest gap between two consecutive matches falls below the ideal.
       </Factor>
 
@@ -619,7 +669,7 @@ function HowItWorks(){
         <div className="how-comp-t"><Trophy size={14}/> Putting it together</div>
         <p className="how-foot">
           The five factors are rescaled to a common range and blended using the weights you set,
-          giving one burden score per team. The <b>Optimized</b> view then asks a harder question:
+          giving one burden score per team. The <b>Fairer draw</b> view then asks a harder question:
           keeping every team's base camp and match dates fixed, can the 72 matches be re-slotted across
           the 16 cities so the <i>worst-off</i> team suffers as little as possible? Teams couple because
           no two matches can share a stadium on the same day, so it is a real assignment problem, not
@@ -652,9 +702,9 @@ function HowItWorks(){
     </div>
   );
 }
-function Factor({icon:Icon,col,name,children}){
+function Factor({icon:Icon,col,name,children,id}){
   return (
-    <div className="eq" style={{borderLeftColor:col}}>
+    <div className="eq" id={id} style={{borderLeftColor:col}}>
       <div className="eq-h"><Icon size={15} style={{color:col}}/><b>{name}</b></div>
       <p>{children}</p>
     </div>
@@ -750,7 +800,7 @@ s.t. Z ≥ κ(t) + Σₘ Σ_c cost(t,m,c)·x[m,c]   ∀ teams t
         <p className="how-foot">
           Solved exactly with CBC at the default weighting; the worst-team burden and fairness gap above
           are optimal. The optimum is not unique, so the precise set of relocated matches can vary. The
-          in-app <b>Optimized</b> toggle runs a warm-started local search that attains the same optimum
+          in-app <b>Fairer draw</b> toggle runs a warm-started local search that attains the same optimum
           and re-solves live as you move the sliders.
         </p>
         <p className="how-foot">
@@ -922,7 +972,9 @@ function JourneyMap({row,onPick,onDetails,rows,embedded}){
             <g key={r0.key}>
               {stacked && <circle cx={x} cy={y} r={isB&&isV?12:9} fill="none" stroke="var(--magenta)" strokeWidth="2"/>}
               {isB && isV && <circle cx={x} cy={y} r="9" fill="none" stroke="var(--gold)" strokeWidth="2"/>}
-              <circle cx={x} cy={y} r="5.6" fill={fill} stroke="#fff" strokeWidth="1.4"/>
+              <circle cx={x} cy={y} r="5.6" fill={fill} stroke="#fff" strokeWidth="1.4" style={{cursor:"help"}}>
+                <title>{`${r0.c.n}${roleTags.length?` — ${roleTags.join(", ")}`:""}${isV?` — matches ${matchStr}`:""}${r0.c.wb!=null?` — ~${r0.c.wb}°C WBGT`:""}${r0.c.el!=null?`${r0.c.wb!=null?",":" —"} ${r0.c.el} m`:""}`}</title>
+              </circle>
               <text x={lx} y={y+3} className="map-city strong">{cityLabel}</text>
               {roleTags.length>0 && <text x={lx} y={y+13.5} className="map-tags">{roleTags.join(" · ")}</text>}
             </g>
@@ -996,7 +1048,7 @@ function Sensitivity({H, wN, lead, leadOv, baseOv, rows}){
     </div>
   );
 }
-function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,rows,copyLink,copied,mode,objective}){
+function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,rows,copyLink,copied,mode,objective,onOpenTeam}){
   const rivals = rows.filter((r)=>r.g===row.g && r.t!==row.t);
   const downloadCard = ()=>{
     const svg = buildCardSVG({ team:row.t, flag:row.f, rank:row.rank, n:rows.length, burden:row.cmp,
@@ -1039,7 +1091,7 @@ function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,ro
             </div>
           </div>
           <div className="dscore">
-            <span>#{row.rank}</span><b>{row.cmp.toFixed(1)}</b><em>burden</em>
+            <span>#{row.rank}</span><b><CountUp value={row.cmp} decimals={1}/></b><em>burden</em>
           </div>
         </div>
 
@@ -1117,14 +1169,14 @@ function Detail({row,onClose,onShowMap,baseOv,setBaseOv,leadOv,setLeadOv,lead,ro
               {rivals.sort((a,b)=>b.cmp-a.cmp).map((rv)=>{
                 const edge=rv.cmp-row.cmp; const fav=edge>0;
                 return (
-                  <div key={rv.t} className="rival" onClick={()=>{}}>
+                  <button key={rv.t} className="rival" onClick={()=>onOpenTeam&&onOpenTeam(rv.t)} title={`Open ${rv.t}'s journey`}>
                     <span className="rf">{rv.f}</span>
                     <span className="rn">{rv.t}</span>
                     <span className="redge" style={{color:fav?"var(--green)":"var(--magenta)"}}>
                       {fav?"+":""}{edge.toFixed(1)}
                     </span>
                     <span className="rtag">{fav?"they're wearier":"you're wearier"}</span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1198,6 +1250,19 @@ const CSS = `
 .prov .warn{color:var(--gold);border:1px solid rgba(217,135,18,.4);background:rgba(217,135,18,.07);padding:2px 7px;border-radius:6px}
 .copylink{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--cyan);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer;transition:.12s}
 .copylink:hover{border-color:var(--cyan);background:rgba(10,165,149,.07)}
+.expertbtn{color:var(--violet)}
+.expertbtn:hover{border-color:var(--violet);background:rgba(106,92,240,.08)}
+.expertbtn.on{background:var(--violet);border-color:var(--violet);color:#fff}
+/* fan-mode single-column body (console hidden) */
+.body.solo{grid-template-columns:1fr}
+/* always-visible Actual↔Fairer schedule switch (panel header) */
+.fairswitch{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 8px 4px}
+.fairswitch-l{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.fairseg{flex:0 0 auto;display:inline-flex;background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:3px}
+.fairseg button{font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--mut);background:none;border:none;padding:7px 16px;border-radius:999px;cursor:pointer;transition:.15s}
+.fairseg button:hover{color:var(--ink2)}
+.fairseg button.on{background:linear-gradient(96deg,var(--cyan),var(--green));color:#fff;box-shadow:0 2px 8px rgba(10,165,149,.3)}
+.fairswitch-note{font-family:var(--mono);font-size:11px;color:var(--mut)}
 .dshare{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
 .dcard{color:var(--gold)!important;border-color:rgba(217,135,18,.4)!important}
 .dcard:hover{border-color:var(--gold)!important;background:rgba(217,135,18,.08)!important}
@@ -1266,6 +1331,8 @@ const CSS = `
   background:linear-gradient(96deg,rgba(237,31,120,.07),rgba(106,92,240,.05));border:1px solid var(--line);border-left:4px solid var(--magenta);
   border-radius:13px;padding:13px 16px;transition:.15s}
 .verdict:hover{border-left-color:var(--violet);box-shadow:var(--shadow)}
+.verdict{animation:reveal .5s cubic-bezier(.2,.8,.2,1) both}
+@keyframes reveal{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .verdict-tag{flex:0 0 auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--magenta);align-self:flex-start;margin-top:2px}
 .verdict-txt{font-size:14px;line-height:1.5;color:var(--ink2)}
 .verdict-txt b{color:var(--ink)}
@@ -1285,9 +1352,10 @@ const CSS = `
 /* "what is burden" explainer strip (hero) */
 .burdenstrip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:18px;padding-top:15px;border-top:1px solid var(--line2)}
 .bs-l{font-size:13px;color:var(--ink2);margin-right:2px}
-.bs-chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--ink2);
+.bs-chip{cursor:pointer;transition:.12s;display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--ink2);
   background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:4px 11px}
 .bs-chip svg{flex:0 0 auto}
+.bs-chip:hover{border-color:var(--ink2);color:var(--ink);transform:translateY(-1px)}
 .bs-note{font-family:var(--mono);font-size:11px;color:var(--mut)}
 
 /* presets + advanced disclosure (console) */
@@ -1331,6 +1399,8 @@ const CSS = `
 .picker-tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* data export buttons (rankings summary) */
+.sum-readout{font-size:13px;color:var(--ink2);line-height:1.45;max-width:60ch}
+.sum-readout b{color:var(--ink)}
 .sum-export{margin-left:auto;display:flex;gap:6px;align-items:center}
 .expbtn{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;letter-spacing:.04em;color:var(--ink2);
   background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 9px;cursor:pointer;transition:.12s}
@@ -1400,7 +1470,8 @@ const CSS = `
 .wasrank{color:var(--gold);font-weight:700}
 .track{height:16px;background:rgba(22,25,28,.07);border-radius:6px;overflow:hidden}
 .fill{height:100%;display:flex;border-radius:6px;overflow:hidden;min-width:2px;transition:width .25s}
-.fill i{height:100%;display:block}
+.fill i{height:100%;display:block;transition:filter .12s}
+.barrow:hover .barseg:hover{filter:brightness(1.18)}
 .sc{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--ink);text-align:right}
 .sumrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:9px;padding-top:11px;border-top:1.5px solid var(--line)}
 .sum-cell{flex:1 1 150px;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--card2)}
@@ -1512,7 +1583,8 @@ const CSS = `
 .ml i{width:9px;height:9px;border-radius:2px}
 .ml b{margin-left:auto;font-family:var(--mono);color:var(--ink)}
 .rivals{display:flex;flex-direction:column;gap:7px}
-.rival{display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:8px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.rival{display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:8px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;transition:.12s}
+.rival:hover{border-color:var(--cyan);background:#fff;transform:translateX(2px)}
 .rf{font-size:17px}.rn{font-size:12.5px;font-weight:700}
 .redge{font-family:var(--mono);font-size:14px;font-weight:500;text-align:right}
 .rtag{grid-column:2/4;font-family:var(--mono);font-size:9.5px;color:var(--mut);margin-top:-3px}

@@ -50,6 +50,7 @@ export function encodeState(s) {
   const lo = packMap(s.leadOv); if (lo) p.leado = lo;
   if (s.sel) p.team = s.sel;
   if (s.drawerOpen && s.sel) p.open = "1";
+  if (s.expert) p.x = "1";
   return p;
 }
 
@@ -68,5 +69,6 @@ export function decodeState(sp) {
   const lo = unpackMap(g("leado"), true); if (Object.keys(lo).length) st.leadOv = lo;
   if (g("team")) st.sel = g("team");
   if (g("open") === "1") st.drawerOpen = true;
+  if (g("x") === "1") st.expert = true;
   return st;
 }
