@@ -87,6 +87,7 @@ export default function WorldCup2026TravelBurdenLab(){
   const [advanced, setAdvanced] = useState(false);   // raw coefficient sliders hidden by default
   const [pickerOpen, setPickerOpen] = useState(false); // "find your team" overlay
   const [conf, setConf] = useState("all");            // confederation filter in rankings
+  const [showAll, setShowAll] = useState(false);      // rankings: top 12 by default, expand to all 48
   // console starts collapsed on small screens so mobile users reach the rankings first
   const [consoleOpen, setConsoleOpen] = useState(()=> !(typeof window!=="undefined" && window.matchMedia && window.matchMedia("(max-width:900px)").matches));
   const [expert, setExpert] = useState(I.expert ?? false); // analyst console + Stability/Formulae tabs
@@ -179,24 +180,23 @@ export default function WorldCup2026TravelBurdenLab(){
     const vs=gr.map((r)=>r.cmp);
     return {g, gr, gap:Math.max(...vs)-Math.min(...vs)};
   }),[rows]);
-  const barFor = (r) => (
+  const barFor = (r) => {
+    const dom = METRICS.reduce((a,m)=> r.parts[m.k] > r.parts[a.k] ? m : a, METRICS[0]);
+    const domPct = Math.round(r.parts[dom.k]/(r.cmp/100||1)*100);
+    return (
     <button key={r.t} data-flip={r.t} className={"barrow"+(sel===r.t?" selrow":"")} onClick={()=>openTeam(r.t)}
-      aria-label={`${r.t}, group ${r.g}, rank ${r.rank} of ${rows.length}, burden ${r.cmp.toFixed(1)}. Open itinerary.`}>
+      aria-label={`${r.t}, group ${r.g}, rank ${r.rank} of ${rows.length}, burden ${r.cmp.toFixed(1)}, mostly ${dom.label.toLowerCase()}. Open itinerary.`}>
       <span className="rk">{r.rank}</span>
       <span className="fl">{r.f}</span>
-      <span className="tn">{r.t}<em>Gr. {r.g} · {r.cf}{sortMode==="fifa"?` · FIFA ≈${r.fifa}`:""}{mode==="fair" && <span className="wasrank" title={`Actual (FIFA) rank ${actualRank[r.t]} → Fair rank ${r.rank}`}> · {actualRank[r.t]>r.rank?`▲${actualRank[r.t]-r.rank}`:actualRank[r.t]<r.rank?`▼${r.rank-actualRank[r.t]}`:"="}</span>}</em></span>
+      <span className="tn">{r.t}<em>Gr. {r.g} · <b className="domf" style={{color:dom.col}}>{dom.label}</b>{sortMode==="fifa"?` · FIFA ≈${r.fifa}`:""}{mode==="fair" && <span className="wasrank" title={`Actual (FIFA) rank ${actualRank[r.t]} → Fair rank ${r.rank}`}> · {actualRank[r.t]>r.rank?`▲${actualRank[r.t]-r.rank}`:actualRank[r.t]<r.rank?`▼${r.rank-actualRank[r.t]}`:"="}</span>}</em></span>
       <span className="track">
-        <span className="fill" style={{width:`${(r.cmp/maxC)*100}%`}}>
-          {METRICS.map((m)=>{
-            const frac = r.parts[m.k]/(r.cmp/100||1);
-            return <i key={m.k} className="barseg" style={{width:`${frac*100}%`,background:m.col}}
-              title={`${m.label} · ${Math.round(frac*100)}% of burden`}/>;
-          })}
-        </span>
+        <span className="fill" style={{width:`${(r.cmp/maxC)*100}%`,background:dom.col}}
+          title={`${dom.label} is the biggest factor (${domPct}%). Open the team for the full breakdown.`}/>
       </span>
       <span className="sc">{r.cmp.toFixed(1)}</span>
     </button>
   );
+  };
 
   const selRow = sel ? rows.find((r)=>r.t===sel) : null;
   // intuitive "Nx tougher" framing for fans (guard against a near-zero easiest draw)
@@ -226,17 +226,13 @@ export default function WorldCup2026TravelBurdenLab(){
             <div className="kicker">TRAVEL BURDEN LAB · WORLD CUP 26 · 🇺🇸 🇨🇦 🇲🇽 · 48 TEAMS</div>
             <h1 className="title">WHO GOT THE BRUTAL DRAW?</h1>
             <p className="sub">
-              The first <b>48-team</b> World Cup is spread across three countries and a whole continent.
-              Some teams rack up thousands of extra miles (through <b>fierce heat</b>, <b>thin mountain air</b>,
-              on <b>short rest</b>) before a ball is kicked. Others barely move. We score every team's trip,
-              rank who got the roughest deal, then show the <b>fairer schedule FIFA could have played</b>.
+              The first <b>48-team</b> World Cup spans a whole continent, so some teams travel far more,
+              in worse <b>heat</b> and <b>altitude</b> and on less <b>rest</b>, than others. See who drew the
+              roughest trip, then redraw a <b>fairer one</b>.
             </p>
             <div className="hero-cta">
               <button className="findbtn" onClick={()=>setPickerOpen(true)}>
                 <Search size={15}/> Find your team
-              </button>
-              <button className="hero-link" onClick={()=>openTeam(hardest.t)}>
-                or see the toughest draw <ChevronRight size={14}/>
               </button>
               <button className="hero-link" onClick={()=>openTeam(TEAMS[Math.floor(Math.random()*TEAMS.length)].t)} title="Open a random team">
                 🎲 Surprise me
@@ -258,8 +254,7 @@ export default function WorldCup2026TravelBurdenLab(){
           <span className="bs-note">higher = a tougher trip</span>
         </div>
         <div className="prov">
-          Groups, nations, base camps & all 72 fixtures <span className="ok">confirmed</span> · model
-          weights & coefficients <span className="warn">tunable</span>
+          <span className="prov-txt">All 72 fixtures, camps & geography <span className="ok">confirmed</span> · model <span className="warn">tunable</span></span>
           <button className="copylink" onClick={copyLink} title="Copy a link to this exact view">
             {copied ? <><Check size={12}/> copied</> : <><Link2 size={12}/> copy link</>}
           </button>
@@ -269,14 +264,14 @@ export default function WorldCup2026TravelBurdenLab(){
             <FlaskConical size={13}/>
             {expert ? <>Expert mode <b>on</b></> : <>Expert mode<span className="expertbtn-hint">tune the model →</span></>}
           </button>
-          <label className="fontsel">
+          {expert && <label className="fontsel">
             <span>Aa</span>
             <select value={fontTheme} onChange={(e)=>setFontTheme(e.target.value)}>
               <option value="editorial">Editorial (Anton)</option>
               <option value="modern">Modern (Space Grotesk)</option>
               <option value="geist">Geist</option>
             </select>
-          </label>
+          </label>}
         </div>
       </header>
 
@@ -444,7 +439,7 @@ export default function WorldCup2026TravelBurdenLab(){
                 {METRICS.map((m)=>(
                   <span key={m.k} className="lg"><i style={{background:m.col}}/><Term def={m.tip}>{m.label}</Term></span>
                 ))}
-                <span className="lg-note">bar length = total <Term def="Composite fatigue score: 100 × the weighted blend of the five factors. Higher = a more punishing draw.">burden</Term> · click a team for its itinerary{mode==="fair"?" · ":""}{mode==="fair" && <b style={{color:"var(--gold)"}}>▲▼ change from actual fixtures</b>}</span>
+                <span className="lg-note">bar length = total <Term def="Composite fatigue score: 100 × the weighted blend of the five factors. Higher = a more punishing draw.">burden</Term> · colour = biggest factor · tap a team for the full breakdown{mode==="fair"?" · ":""}{mode==="fair" && <b style={{color:"var(--gold)"}}>▲▼ change from actual fixtures</b>}</span>
               </div>
               <div className="sortbar">
                 <span className="sortbar-l">Sort</span>
@@ -478,10 +473,17 @@ export default function WorldCup2026TravelBurdenLab(){
                   })}
                 </div>
               ) : (
-                (()=>{ const flat = conf==="all" ? displayed : displayed.filter((r)=>r.cf===conf);
-                  return flat.length
-                    ? <div className="bars">{flat.map((r)=>barFor(r))}</div>
-                    : <div className="emptybars">No teams from {conf} in this view.</div>; })()
+                (()=>{ const all = conf==="all" ? displayed : displayed.filter((r)=>r.cf===conf);
+                  if(!all.length) return <div className="emptybars">No teams from {conf} in this view.</div>;
+                  // keep the default view scannable: top 12 (hardest) until expanded
+                  const limited = sortMode==="burden" && conf==="all" && !showAll && all.length>12;
+                  const flat = limited ? all.slice(0,12) : all;
+                  return (<>
+                    <div className="bars">{flat.map((r)=>barFor(r))}</div>
+                    {limited
+                      ? <button className="showall" onClick={()=>setShowAll(true)}>Show all {all.length} teams ↓</button>
+                      : (sortMode==="burden" && conf==="all" && all.length>12 && <button className="showall" onClick={()=>setShowAll(false)}>Show top 12 only ↑</button>)}
+                  </>); })()
               )}
               <div className="sumrow">
                 {expert ? (<>
@@ -1267,6 +1269,7 @@ const CSS = `
 .hero-badge{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--gold);
   border:1px solid rgba(217,135,18,.45);background:rgba(217,135,18,.07);border-radius:999px;padding:8px 12px;display:flex;gap:7px;align-items:center;white-space:nowrap}
 .prov{position:relative;margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--mut);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.prov-txt{margin-right:auto}
 .prov .ok{color:var(--green);border:1px solid rgba(25,169,87,.4);background:rgba(25,169,87,.07);padding:2px 7px;border-radius:6px}
 .prov .warn{color:var(--gold);border:1px solid rgba(217,135,18,.4);background:rgba(217,135,18,.07);padding:2px 7px;border-radius:6px}
 .copylink{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--cyan);background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;cursor:pointer;transition:.12s}
@@ -1511,6 +1514,10 @@ const CSS = `
 .tn em{font-style:normal;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--mut);font-weight:400;margin-top:1px}
 .wasrank{color:var(--gold);font-weight:700}
 .track{height:16px;background:rgba(22,25,28,.07);border-radius:6px;overflow:hidden}
+.domf{font-weight:600}
+.showall{width:100%;margin-top:8px;font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--ink2);
+  background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:11px;cursor:pointer;transition:.12s}
+.showall:hover{border-color:var(--cyan);color:var(--cyan)}
 .fill{height:100%;display:flex;border-radius:6px;overflow:hidden;min-width:2px;transition:width .25s}
 .fill i{height:100%;display:block;transition:filter .12s}
 .barrow:hover .barseg:hover{filter:brightness(1.18)}
