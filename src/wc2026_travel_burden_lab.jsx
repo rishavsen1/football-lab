@@ -75,7 +75,7 @@ export default function WorldCup2026TravelBurdenLab(){
   const [objective, setObjective] = useState(I.objective ?? "minimax"); // minimax | gap | gini | total
   const [fontTheme, setFontTheme] = useState("editorial"); // editorial | modern | geist
   const [tab, setTab] = useState(I.tab ?? "rank");
-  const [sortMode, setSortMode] = useState(I.sortMode ?? "burden"); // burden | group | az | fifa
+  const [sortMode, setSortMode] = useState(I.sortMode ?? "group"); // group | burden | az | fifa
   const [statMode, setStatMode] = useState("sd"); // sd | var | range
   const [sel, setSel] = useState(I.sel ?? null);
   const [drawerOpen, setDrawerOpen] = useState(I.drawerOpen ?? false);
@@ -87,7 +87,7 @@ export default function WorldCup2026TravelBurdenLab(){
   const [advanced, setAdvanced] = useState(false);   // raw coefficient sliders hidden by default
   const [pickerOpen, setPickerOpen] = useState(false); // "find your team" overlay
   const [conf, setConf] = useState("all");            // confederation filter in rankings
-  const [showAll, setShowAll] = useState(false);      // rankings: top 12 by default, expand to all 48
+  const [showAll, setShowAll] = useState(true);       // show all teams by default; Burden sort can collapse to top 12
   // console starts collapsed on small screens so mobile users reach the rankings first
   const [consoleOpen, setConsoleOpen] = useState(()=> !(typeof window!=="undefined" && window.matchMedia && window.matchMedia("(max-width:900px)").matches));
   const [expert, setExpert] = useState(I.expert ?? false); // analyst console + Stability/Formulae tabs
@@ -291,12 +291,12 @@ export default function WorldCup2026TravelBurdenLab(){
       {/* ---------------- STAT CARDS ---------------- */}
       <section className="stats">
         <StatCard label="HARDEST DRAW" big={hardest.t} flag={hardest.f}
-          sub={`roughest trip · burden ${hardest.cmp.toFixed(1)}`} accent="var(--magenta)" onClick={()=>openTeam(hardest.t)}/>
+          sub={`roughest trip · burden ${hardest.cmp.toFixed(1)}`} accent="var(--ink)" onClick={()=>openTeam(hardest.t)}/>
         <StatCard label="EASIEST DRAW" big={easiest.t} flag={easiest.f}
-          sub={`comfiest trip · burden ${easiest.cmp.toFixed(1)}`} accent="var(--green)" onClick={()=>openTeam(easiest.t)}/>
-        <StatCard label="HOW LOPSIDED" big={<CountUp value={ratio} decimals={1} suffix="×"/>} sub="hardest vs easiest trip" accent="var(--cyan)"
+          sub={`comfiest trip · burden ${easiest.cmp.toFixed(1)}`} accent="var(--cyan)" onClick={()=>openTeam(easiest.t)}/>
+        <StatCard label="HOW LOPSIDED" big={<CountUp value={ratio} decimals={1} suffix="×"/>} sub="hardest vs easiest trip" accent="var(--ink)"
           tip="How many times tougher the hardest team's trip is than the easiest team's (hardest burden divided by easiest). Higher means a more lopsided, less fair draw."/>
-        <StatCard label="INEQUALITY" big={<CountUp value={gi} decimals={2}/>} sub="0 = every team even" accent="var(--gold)"
+        <StatCard label="INEQUALITY" big={<CountUp value={gi} decimals={2}/>} sub="0 = every team even" accent="var(--cyan)"
           tip="The Gini coefficient across all 48 teams: 0 means every team has an identical trip, and higher values mean a more uneven spread. It's a standard way to measure inequality."/>
       </section>
 
@@ -435,27 +435,31 @@ export default function WorldCup2026TravelBurdenLab(){
 
           {tab==="rank" && (
             <div className="rankwrap" ref={rankwrapRef}>
-              <div className="legend">
-                {METRICS.map((m)=>(
-                  <span key={m.k} className="lg"><i style={{background:m.col}}/><Term def={m.tip}>{m.label}</Term></span>
-                ))}
-                <span className="lg-note">bar length = total <Term def="Composite fatigue score: 100 × the weighted blend of the five factors. Higher = a more punishing draw.">burden</Term> · colour = biggest factor · tap a team for the full breakdown{mode==="fair"?" · ":""}{mode==="fair" && <b style={{color:"var(--gold)"}}>▲▼ change from actual fixtures</b>}</span>
+              <div className="rktoolbar">
+                <div className="tb-grp">
+                  <span className="tb-l">Sort</span>
+                  {[["group","By group"],["burden","Burden"],["az","A–Z"],["fifa","FIFA rank"]].map(([k,l])=>(
+                    <button key={k} className={"sortbtn"+(sortMode===k?" on":"")} onClick={()=>setSortMode(k)}
+                      title={k==="fifa"?"≈ FIFA ranking snapshot, Apr 2026 (teams below ~20 estimated)":k==="group"?"Grouped A to L · rank # = overall burden rank, bars share one scale":""}>{l}</button>
+                  ))}
+                </div>
+                <span className="tb-div"/>
+                <div className="tb-grp">
+                  <span className="tb-l">Region</span>
+                  <button className={"confchip"+(conf==="all"?" on":"")} onClick={()=>setConf("all")}>All</button>
+                  {CONFEDERATIONS.map((c)=>(
+                    <button key={c} className={"confchip"+(conf===c?" on":"")} onClick={()=>setConf(conf===c?"all":c)}>{c}</button>
+                  ))}
+                </div>
+                <span className="tb-div"/>
+                <div className="tb-grp tb-key">
+                  <span className="tb-l">Factors</span>
+                  {METRICS.map((m)=>(
+                    <span key={m.k} className="lg"><i style={{background:m.col}}/><Term def={m.tip}>{m.label}</Term></span>
+                  ))}
+                </div>
               </div>
-              <div className="sortbar">
-                <span className="sortbar-l">Sort</span>
-                {[["burden","Burden"],["group","By group"],["az","A–Z"],["fifa","FIFA rank"]].map(([k,l])=>(
-                  <button key={k} className={"sortbtn"+(sortMode===k?" on":"")} onClick={()=>setSortMode(k)}>{l}</button>
-                ))}
-                {sortMode==="fifa" && <span className="sortbar-note">≈ snapshot, Apr 2026 (sub-20 estimated)</span>}
-                {sortMode==="group" && <span className="sortbar-note">rank # = overall burden rank · bars share one scale</span>}
-              </div>
-              <div className="conffilter">
-                <span className="sortbar-l">Confed.</span>
-                <button className={"confchip"+(conf==="all"?" on":"")} onClick={()=>setConf("all")}>All</button>
-                {CONFEDERATIONS.map((c)=>(
-                  <button key={c} className={"confchip"+(conf===c?" on":"")} onClick={()=>setConf(conf===c?"all":c)}>{c}</button>
-                ))}
-              </div>
+              <div className="rk-note">Bar length = <Term def="Composite fatigue score: 100 × the weighted blend of the five factors. Higher = a more punishing draw.">burden</Term> · colour = its biggest factor · tap a team for the full breakdown{mode==="fair" && <> · <b style={{color:"var(--gold)"}}>▲▼ = change vs the actual draw</b></>}</div>
               {sortMode==="group" ? (
                 <div className="bars">
                   {groups.map(({g,gr,gap:gg})=>{
@@ -1276,19 +1280,20 @@ const CSS = `
 .copylink:hover{border-color:var(--cyan);background:rgba(10,165,149,.07)}
 /* Expert-mode toggle: a prominent, inviting pill (stands apart from the utility links) */
 .expertbtn{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;
-  color:#fff;background:linear-gradient(96deg,var(--violet),#8b5cf6);border:none;border-radius:999px;padding:6px 14px;cursor:pointer;
-  box-shadow:0 3px 12px rgba(106,92,240,.34);transition:.16s;position:relative}
-.expertbtn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(106,92,240,.5)}
-.expertbtn b{font-weight:700}
-.expertbtn-hint{margin-left:5px;padding-left:7px;border-left:1px solid rgba(255,255,255,.4);opacity:.92;font-size:10px}
-/* gentle attention pulse while off (disabled under prefers-reduced-motion via the global guard) */
+  color:#fff;background:var(--ink);border:none;border-radius:999px;padding:6px 14px;cursor:pointer;
+  box-shadow:0 3px 12px rgba(10,165,149,.3);transition:.16s;position:relative}
+.expertbtn svg{color:var(--cyan)}
+.expertbtn b{font-weight:700;color:var(--cyan)}
+.expertbtn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(10,165,149,.45)}
+.expertbtn-hint{margin-left:5px;padding-left:7px;border-left:1px solid rgba(255,255,255,.25);opacity:.85;font-size:10px}
+/* gentle teal attention pulse while off (disabled under prefers-reduced-motion via the global guard) */
 .expertbtn:not(.on){animation:expertpulse 2.6s ease-in-out infinite}
 @keyframes expertpulse{
-  0%,100%{box-shadow:0 3px 12px rgba(106,92,240,.34)}
-  50%{box-shadow:0 4px 20px rgba(106,92,240,.62),0 0 0 4px rgba(106,92,240,.12)}
+  0%,100%{box-shadow:0 3px 12px rgba(10,165,149,.3)}
+  50%{box-shadow:0 4px 18px rgba(10,165,149,.55),0 0 0 4px rgba(10,165,149,.12)}
 }
-.expertbtn.on{background:var(--ink);box-shadow:none}
-.expertbtn.on:hover{box-shadow:0 3px 10px rgba(22,25,28,.25)}
+.expertbtn.on{box-shadow:none}
+.expertbtn.on:hover{box-shadow:0 3px 10px rgba(10,165,149,.3)}
 /* fan-mode single-column body (console hidden) */
 .body.solo{grid-template-columns:1fr}
 /* always-visible Actual↔Fairer schedule switch (panel header) */
@@ -1364,16 +1369,16 @@ const CSS = `
 
 /* verdict banner ("which team got screwed") */
 .verdict{width:100%;text-align:left;display:flex;align-items:center;gap:14px;margin-bottom:14px;cursor:pointer;
-  background:linear-gradient(96deg,rgba(237,31,120,.07),rgba(106,92,240,.05));border:1px solid var(--line);border-left:4px solid var(--magenta);
+  background:linear-gradient(96deg,rgba(10,165,149,.08),rgba(10,165,149,.02));border:1px solid var(--line);border-left:4px solid var(--cyan);
   border-radius:13px;padding:13px 16px;transition:.15s}
-.verdict:hover{border-left-color:var(--violet);box-shadow:var(--shadow)}
+.verdict:hover{border-left-color:var(--cyan);box-shadow:var(--shadow)}
 .verdict{animation:reveal .5s cubic-bezier(.2,.8,.2,1) both}
 @keyframes reveal{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.verdict-tag{flex:0 0 auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--magenta);align-self:flex-start;margin-top:2px}
+.verdict-tag{flex:0 0 auto;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--cyan);align-self:flex-start;margin-top:2px}
 .verdict-txt{font-size:14px;line-height:1.5;color:var(--ink2)}
 .verdict-txt b{color:var(--ink)}
 .verdict-arrow{flex:0 0 auto;color:var(--mut);margin-left:auto;transition:.15s}
-.verdict:hover .verdict-arrow{color:var(--magenta);transform:translateX(3px)}
+.verdict:hover .verdict-arrow{color:var(--cyan);transform:translateX(3px)}
 
 /* find-your-team CTA (hero) */
 .hero-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:16px}
@@ -1490,9 +1495,16 @@ const CSS = `
 /* rankings */
 .rankwrap{padding:12px 14px}
 .legend{display:flex;flex-wrap:wrap;gap:13px;align-items:center;margin-bottom:12px;font-size:11.5px;color:var(--mut)}
-.lg{display:flex;gap:6px;align-items:center}
-.lg i{width:11px;height:11px;border-radius:3px;display:inline-block}
+.lg{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--mut)}
+.lg i{width:11px;height:11px;border-radius:3px;display:inline-block;flex:0 0 auto}
 .lg-note{margin-left:auto;font-family:var(--mono);font-size:10.5px;opacity:.85}
+/* consolidated rankings toolbar: Sort · Region · Factors key */
+.rktoolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-bottom:6px;padding-bottom:10px;border-bottom:1px solid var(--line2)}
+.tb-grp{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tb-l{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-right:1px}
+.tb-div{width:1px;height:16px;background:var(--line)}
+.tb-key{gap:10px}
+.rk-note{font-family:var(--mono);font-size:10.5px;color:var(--mut);line-height:1.5;margin-bottom:12px}
 .sortbar{display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .sortbar-l{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-right:2px}
 .sortbtn{font-family:var(--mono);font-size:11.5px;padding:4px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink2);cursor:pointer;transition:.12s}

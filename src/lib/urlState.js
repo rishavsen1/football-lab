@@ -42,7 +42,7 @@ export function encodeState(s) {
   if (s.mode && s.mode !== "fifa") p.m = s.mode;
   if (s.objective && s.objective !== "minimax") p.o = s.objective;
   if (s.tab && s.tab !== "rank") p.tab = s.tab;
-  if (s.sortMode && s.sortMode !== "burden") p.sort = s.sortMode;
+  if (s.sortMode && s.sortMode !== "group") p.sort = s.sortMode;
   if (s.lead != null && s.lead !== LEAD) p.lead = String(s.lead);
   const h = packDiff(s.H, DEFAULT_H); if (h) p.h = h;
   const w = packDiff(s.W, DEFAULT_W); if (w) p.w = w;
